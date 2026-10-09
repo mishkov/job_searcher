@@ -11,7 +11,7 @@ from src.search_filter import SearchFilter
 from src.job import Job
 
 class GeekJobRuJobsSource(JobsSource):
-    def fetch(self, since: datetime, search_filter: SearchFilter) -> list[Job]:
+    async def fetch(self, since: datetime, search_filter: SearchFilter) -> list[Job]:
         jobs: list[Job] = []
         for url in self._collectJobUrls(since, search_filter):
             response = requests.get(url, timeout=15)

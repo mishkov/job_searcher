@@ -1,25 +1,38 @@
 import os
+import asyncio
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timezone
+from telethon import TelegramClient, events
 
 from src.search_filter import SearchFilter
 
 from src.job_sources.geek_job_ru.geek_job_ru import GeekJobRuJobsSource
+from src.job_sources.telegram_channel_direct.telegram_channel_direct import TelegramChannelDirectJobsSource
 
 load_dotenv()
 
-# Load config from .env. Keep config as abstract entity so we can replace the .env with some per-user record in DB
-fetch_period = os.getenv("FETCH_PERIOD_IN_MINUTES")
+client = TelegramClient(
+    os.environ["PATH_TO_TELEGRAM_SESSION"],
+    int(os.environ["TELEGRAM_APP_API_ID"]),
+    os.environ["TELEGRAM_APP_API_HASH"],
+)
 
-sources = [
-    GeekJobRuJobsSource()
-]
+async def main():
+    async with client:
+        sources = [
+            GeekJobRuJobsSource(),
+            TelegramChannelDirectJobsSource(client, "flutter_dart_jobs_vakansii")
+        ]
 
-for source in sources:
-    jobs = source.fetch(since=datetime(2026, 9, 1), search_filter=SearchFilter(keywords=['flutter']))
+        for source in sources:
+            since = datetime(2026, 9, 1,tzinfo=timezone.utc)
+            jobs = await source.fetch(since=since, search_filter=SearchFilter(keywords=['flutter']))
 
-    if len(jobs) == 0:
-        continue
+            if len(jobs) == 0:
+                continue
 
-    for job in jobs:
-        print(job)
+            for job in jobs:
+                print(job)
+        
+
+asyncio.run(main())
