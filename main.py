@@ -66,7 +66,8 @@ async def jobs(message: Message):
 
             sources: list[JobsSource] = [
                 GeekJobRuJobsSource('geekjob.ru'),
-                TelegramChannelDirectJobsSource(client, "flutter_dart_jobs_vakansii")
+                TelegramChannelDirectJobsSource(client, "flutter_dart_jobs_vakansii"),
+                TelegramChannelDirectJobsSource(client, "dartlang_jobs")
             ]
 
             foundJobsCount = 0
