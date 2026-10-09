@@ -1,4 +1,5 @@
 from datetime import datetime
+import hashlib
 
 from telethon import TelegramClient
 from telethon.tl.types import Channel, Message
@@ -8,7 +9,8 @@ from src.job_sources.job_source import JobsSource
 from src.search_filter import SearchFilter
 
 class TelegramChannelDirectJobsSource(JobsSource):
-    def __init__(self,  client: TelegramClient, channelUsername: str):
+    def __init__(self, client: TelegramClient, channelUsername: str):
+        super().__init__('TG Channel: @channelUsername')
         self.client = client
         self.channelUsername = channelUsername
 
@@ -19,7 +21,15 @@ class TelegramChannelDirectJobsSource(JobsSource):
             if message.date < since:
                 break
 
-            result.append(Job('-', message.text, '-', None, await self._get_message_url(message)))
+            url = await self._get_message_url(message)
+            result.append(Job(
+                '-',
+                message.text,
+                '-',
+                None,
+                url,
+                fingerprint=hashlib.sha256(url.encode()).hexdigest()
+            ))
 
         return result
 

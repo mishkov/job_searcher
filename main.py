@@ -1,13 +1,17 @@
 import os
 import asyncio
+import re
 from dotenv import load_dotenv
-from datetime import datetime, timezone
-from telethon import TelegramClient, events
+from datetime import datetime, timedelta, timezone
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+from telethon import TelegramClient
 
 import asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.enums import ParseMode
 
 from src.job_sources.job_source import JobsSource
 from src.search_filter import SearchFilter
@@ -15,7 +19,20 @@ from src.search_filter import SearchFilter
 from src.job_sources.geek_job_ru.geek_job_ru import GeekJobRuJobsSource
 from src.job_sources.telegram_channel_direct.telegram_channel_direct import TelegramChannelDirectJobsSource
 
+from src.storage.mysql.base import Base
+from src.storage.mysql.mysql_jobs_search_history_repository import MysqlJobsSearchHistoryRespository
+
 load_dotenv()
+
+keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [
+            KeyboardButton(text="/search"),
+        ]
+    ],
+    resize_keyboard=True,
+    is_persistent=True,
+)
 
 dp = Dispatcher()
 
@@ -25,30 +42,98 @@ client = TelegramClient(
     os.environ["TELEGRAM_APP_API_HASH"],
 )
 
+engine = create_engine(
+    os.environ['DATABASE_URL']
+)
+
 @dp.message(CommandStart())
 async def start(message: Message):
-    await message.answer("Hello! I'm your bot.")
+    await message.answer("Welcome!", reply_markup=keyboard)
 
 @dp.message(Command("search"))
 async def jobs(message: Message):
+    status_text ='🔎 Starting jobs search...'
+    status_message = await message.answer(status_text)
+
     async with client:
-        sources: list[JobsSource] = [
-            GeekJobRuJobsSource(),
-            TelegramChannelDirectJobsSource(client, "flutter_dart_jobs_vakansii")
-        ]
+        status_text = '🗃️ Starting database...'
+        with Session(engine) as session:
+            status_text = '⏰ Updating last search time...'
+            await status_message.edit_text(status_text)
+            repository = MysqlJobsSearchHistoryRespository(session)
+            since = await repository.get_last_search_time()
+            await repository.save_last_search_time(datetime.now())
 
-        for source in sources:
-            since = datetime(2026, 9, 1,tzinfo=timezone.utc)
-            jobs = await source.fetch(since=since, search_filter=SearchFilter(keywords=['flutter']))
+            sources: list[JobsSource] = [
+                GeekJobRuJobsSource('geekjob.ru'),
+                TelegramChannelDirectJobsSource(client, "flutter_dart_jobs_vakansii")
+            ]
 
-            if len(jobs) == 0:
-                continue
+            foundJobsCount = 0
 
-            for job in jobs:
-                await message.answer(job.description[:300])
+            status_text = '🔎 Searching in sources...\n'
+            for source in sources:
+                status_text_per_source = f'{status_text}\n🔎 {source.name}'
+                await status_message.edit_text(status_text_per_source)
+                jobs = await source.fetch(
+                    since=since if since else datetime.now(timezone.utc) - timedelta(days=7),
+                    search_filter=SearchFilter(keywords=['flutter'])
+                )
+                
+                if len(jobs) == 0:
+                    continue
+
+                sourceFoundJobs = 0
+                for job in jobs:
+
+                    if await repository.seen(job):
+                        continue
+
+                    keyboard = InlineKeyboardMarkup(
+                        inline_keyboard=[
+                            [InlineKeyboardButton(text="Open job 🔗", url=job.url)]
+                        ]
+                    )
+                    await message.answer(
+                        f'🧑‍💻 *Title:* {escape_markdown(job.title)}\n\n'
+                        f'🏝️ _Remote allowed:_ {escape_markdown(str(job.is_remote_allowed))}\n\n'
+                        f'💸 _Salary:_ {escape_markdown(job.salary)}\n\n'
+                        f'📜 {escape_markdown(job.description[:500])}\\.\\.\\.',
+                        parse_mode=ParseMode.MARKDOWN_V2,
+                        reply_markup=keyboard
+                    )
+                    await repository.add_seen_job(job)
+                    sourceFoundJobs += 1
+
+                    status_text_per_source = f"{status_text}\n⏳ {source.name} [Found: {sourceFoundJobs}]"
+                    await status_message.edit_text(status_text_per_source)
+                
+                foundJobsCount += sourceFoundJobs
+                    
+                status_text = f"{status_text}\n✅ {source.name} [Found: {sourceFoundJobs}]"
+                await status_message.edit_text(status_text)
+                
+
+            if foundJobsCount == 0:
+                await message.answer('No new jobs found')
+            else:
+                await message.answer(f'Found {foundJobsCount} new jobs')
+
+def escape_markdown(text: str) -> str:
+    return re.sub(
+        r'([_*\[\]()~`>#+\-=|{}.!\\])',
+        r'\\\1',
+        text
+    )
 
 async def main():
+    print('Initializign database...')
+    Base.metadata.create_all(engine)
+    print('Database Initialized')
+
     bot = Bot(token=os.environ['TELEGRAM_BOT_TOKEN'])
+    print('Starting telegram bot...')
     await dp.start_polling(bot)
+    print('Telegram bot stopped')
 
 asyncio.run(main())

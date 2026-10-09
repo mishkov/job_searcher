@@ -1,3 +1,5 @@
+import hashlib
+
 from dotenv import load_dotenv
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -11,6 +13,9 @@ from src.search_filter import SearchFilter
 from src.job import Job
 
 class GeekJobRuJobsSource(JobsSource):
+    def __init__(self, name: str):
+        super().__init__(name)
+
     async def fetch(self, since: datetime, search_filter: SearchFilter) -> list[Job]:
         jobs: list[Job] = []
         for url in self._collectJobUrls(since, search_filter):
@@ -40,7 +45,14 @@ class GeekJobRuJobsSource(JobsSource):
                 raise ValueError('Salary not found')
             salary = salaryElement.get_text(strip=True)
 
-            jobs.append(Job(vacancy_name, description, salary if len(salary) != 0 else '-', isRemoveAvailabe, url))
+            jobs.append(Job(
+                vacancy_name,
+                description,
+                salary if len(salary) != 0 else '-',
+                isRemoveAvailabe,
+                url,
+                hashlib.sha256(url.encode()).hexdigest(),
+            ))
 
         return jobs
 

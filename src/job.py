@@ -7,3 +7,4 @@ class Job:
     salary: str
     is_remote_allowed: bool | None
     url: str
+    fingerprint: str
