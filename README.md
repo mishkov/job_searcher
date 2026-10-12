@@ -27,7 +27,14 @@ token to your website; confirm with Web3.career whether your Telegram bot is
 covered by that usage scope. The source no longer needs Playwright or a browser.
 API failures are reported without stopping searches of the other sources.
 
-Run the Web3.career tests without Telegram or database access:
+Welcome to the Jungle requires no API token and is included in
+`config.example.py`. To enable it in an existing `config.py`, import
+`WelcomeToTheJungleJobsSourceConfig` from
+`src.job_sources.welcome_to_the_jungle.welcome_to_the_jungle` and add
+`WelcomeToTheJungleJobsSourceConfig(SearchFilter(keywords=['flutter']))` to
+`SOURCES`.
+
+Run the API source tests without Telegram or database access:
 
 ```shell
 python -m unittest discover -s tests
