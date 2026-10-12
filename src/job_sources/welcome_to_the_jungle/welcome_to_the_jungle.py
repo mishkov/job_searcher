@@ -142,6 +142,7 @@ class WelcomeToTheJungleJobsSource(JobsSource[WelcomeToTheJungleJobsSourceConfig
         if not isinstance(metadata, dict):
             raise ValueError('Expected pagination metadata')
         page_count = metadata['page_count']
+        # bool subclasses int; require an exact int to reject JSON true/false.
         if type(page_count) is not int or page_count < 0 or metadata['page'] != page:
             raise ValueError('Invalid pagination metadata')
         if records and page_count < page:
