@@ -130,7 +130,7 @@ async def jobs(message: Message):
 
                     status_text_per_source = f"{status_text}\n⏳ {source_config.name} [Found: {sourceFoundJobs}]"
                     await status_message.edit_text(status_text_per_source)
-                
+
                 foundJobsCount += sourceFoundJobs
                     
                 status_text = f"{status_text}\n✅ {source_config.name} [Found: {sourceFoundJobs}]"
