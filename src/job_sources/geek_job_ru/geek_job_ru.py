@@ -40,7 +40,7 @@ class GeekJobRuJobsSource(JobsSource[GeekJobRuJobsSourceConfig]):
 
             has_exclude_keyword = False
             for keyword in self.config.filters.exclude_keywords:
-                if keyword in description:
+                if keyword.lower() in description.lower():
                     has_exclude_keyword = True
                     break
             if has_exclude_keyword:

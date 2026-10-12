@@ -41,7 +41,7 @@ class TelegramChannelJobsSource(JobsSource[TelegramChannelJobsSourceConfig]):
 
             has_exclude_keyword = False
             for keyword in self.config.filters.exclude_keywords:
-                if keyword in message.text:
+                if keyword.lower() in message.text.lower():
                     has_exclude_keyword = True
                     break
             if has_exclude_keyword:
@@ -50,7 +50,7 @@ class TelegramChannelJobsSource(JobsSource[TelegramChannelJobsSourceConfig]):
             if not '*' in self.config.filters.keywords:
                 has_keyword = False
                 for keyword in self.config.filters.keywords:
-                    if keyword in message.text:
+                    if keyword.lower() in message.text.lower():
                         has_keyword = True
 
                         break
