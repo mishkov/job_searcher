@@ -36,6 +36,9 @@ class TelegramChannelJobsSource(JobsSource[TelegramChannelJobsSourceConfig]):
             if message.date < since:
                 break
 
+            if not message.text:
+                continue
+
             has_exclude_keyword = False
             for keyword in self.config.filters.exclude_keywords:
                 if keyword in message.text:
