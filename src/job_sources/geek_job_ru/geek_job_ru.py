@@ -13,12 +13,12 @@ from src.search_filter import SearchFilter
 from src.job import Job
 
 class GeekJobRuJobsSource(JobsSource):
-    def __init__(self, name: str):
-        super().__init__(name)
+    def __init__(self, name: str, filters: SearchFilter):
+        super().__init__(name, filters)
 
-    async def fetch(self, since: datetime, search_filter: SearchFilter) -> list[Job]:
+    async def fetch(self, since: datetime) -> list[Job]:
         jobs: list[Job] = []
-        for url in self._collectJobUrls(since, search_filter):
+        for url in self._collect_job_urls(since):
             response = requests.get(url, timeout=15)
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -33,6 +33,14 @@ class GeekJobRuJobsSource(JobsSource):
                     .split("Специализация", 1)[0]
                     .strip()
             )
+
+            has_exclude_keyword = False
+            for keyword in self.filters.exclude_keywords:
+                if keyword in description:
+                    has_exclude_keyword = True
+                    break
+            if has_exclude_keyword:
+                continue
 
             formatElement = soup.select_one('#body > section > article.row.vacancy > section > header > div.jobinfo > span.jobformat')
             if formatElement is None:
@@ -56,28 +64,42 @@ class GeekJobRuJobsSource(JobsSource):
 
         return jobs
 
-    def _collectJobUrls(self, since: datetime, search_filter: SearchFilter) -> list[str]:
+    def _collect_job_urls(self, since: datetime) -> list[str]:
         jobs_urls: list[str] = []
+
+        if '*' in self.filters.keywords:
+            return self._collect_job_urls_for_keyword(since, '*')
         
-        for keyword in search_filter.keywords:
-            page = 1
-            has_next_page = True
-            while has_next_page:
-                response = requests.get('https://geekjob.ru/json/find/vacancy?page=' + str(page) +'&qs=%22' + keyword +'%22')
-                response.raise_for_status()
-                data = response.json()
-
-                has_next_page = data['nextpage'] > 0
-
-                for vacancy_data in data['data']:
-                    if self._isOutdated(since, vacancy_data):
-                        continue
-
-                    jobs_urls.append('https://geekjob.ru/vacancy/' + vacancy_data['id'])
+        for keyword in self.filters.keywords:
+            jobs_urls += self._collect_job_urls_for_keyword(since, keyword)
 
         return jobs_urls
 
-    def _isOutdated(self, since: datetime, vacancy_data) -> bool:
+    def _collect_job_urls_for_keyword(self, since, keyword: str) -> list[str]:
+        jobs_urls: list[str] = []
+
+        page = 1
+        has_next_page = True
+        while has_next_page:
+            search_url = 'https://geekjob.ru/json/find/vacancy?page=' + str(page)
+            if keyword != '*':
+                search_url += '&qs=%22' + keyword +'%22'
+
+            response = requests.get(search_url)
+            response.raise_for_status()
+            data = response.json()
+
+            has_next_page = data['nextpage'] > 0
+
+            for vacancy_data in data['data']:
+                if self._is_outdated(since, vacancy_data):
+                    continue
+
+                jobs_urls.append('https://geekjob.ru/vacancy/' + vacancy_data['id'])
+
+        return jobs_urls
+
+    def _is_outdated(self, since: datetime, vacancy_data) -> bool:
         vacancy_date = dateparser.parse(vacancy_data['log']['modify'], languages=["ru"])
         if vacancy_date is None:
             raise ValueError('Failed to parse date')
