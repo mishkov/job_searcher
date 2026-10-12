@@ -75,7 +75,8 @@ async def jobs(message: Message):
             await status_message.edit_text(status_text)
             repository = MysqlJobsSearchHistoryRespository(session)
             since = await repository.get_last_search_time() if not IS_DEBUG_MODE else datetime.now(timezone.utc) - timedelta(days=7)
-            await repository.save_last_search_time(datetime.now())
+            if not IS_DEBUG_MODE:
+                await repository.save_last_search_time(datetime.now())
 
             foundJobsCount = 0
 
