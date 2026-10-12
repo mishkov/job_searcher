@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 
 
-@dataclass
+@dataclass(frozen=True)
 class SearchFilter:
     """Represents filters that may be used to filter vacancies during search.
 

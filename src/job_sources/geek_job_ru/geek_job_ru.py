@@ -8,13 +8,17 @@ import requests
 from bs4 import BeautifulSoup
 import dateparser
 
-from src.job_sources.job_source import JobsSource
+from src.job_sources.job_source import JobsSource, JobsSourceConfig
 from src.search_filter import SearchFilter
 from src.job import Job
 
-class GeekJobRuJobsSource(JobsSource):
-    def __init__(self, name: str, filters: SearchFilter):
-        super().__init__(name, filters)
+class GeekJobRuJobsSourceConfig(JobsSourceConfig):
+    def __init__(self, filters: SearchFilter):
+        super().__init__('geekjob.ru', filters)
+
+class GeekJobRuJobsSource(JobsSource[GeekJobRuJobsSourceConfig]):
+    def __init__(self, config: GeekJobRuJobsSourceConfig):
+        super().__init__(config)
 
     async def fetch(self, since: datetime) -> list[Job]:
         jobs: list[Job] = []
@@ -35,7 +39,7 @@ class GeekJobRuJobsSource(JobsSource):
             )
 
             has_exclude_keyword = False
-            for keyword in self.filters.exclude_keywords:
+            for keyword in self.config.filters.exclude_keywords:
                 if keyword in description:
                     has_exclude_keyword = True
                     break
@@ -67,10 +71,10 @@ class GeekJobRuJobsSource(JobsSource):
     def _collect_job_urls(self, since: datetime) -> list[str]:
         jobs_urls: list[str] = []
 
-        if '*' in self.filters.keywords:
+        if '*' in self.config.filters.keywords:
             return self._collect_job_urls_for_keyword(since, '*')
         
-        for keyword in self.filters.keywords:
+        for keyword in self.config.filters.keywords:
             jobs_urls += self._collect_job_urls_for_keyword(since, keyword)
 
         return jobs_urls

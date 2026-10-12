@@ -6,39 +6,47 @@ from telethon.hints import EntityLike
 from telethon.tl.types import Channel
 
 from src.job import Job
-from src.job_sources.job_source import JobsSource
+from src.job_sources.job_source import JobsSource, JobsSourceConfig
 from src.search_filter import SearchFilter
 
-class TelegramChannelJobsSource(JobsSource):
-    def __init__(self, client: TelegramClient, entity: EntityLike, filters: SearchFilter, forum_id: int | None = None):
+class TelegramChannelJobsSourceConfig(JobsSourceConfig):
+    def __init__(self, entity: EntityLike, filters: SearchFilter, forum_id: int | None = None):
         if isinstance(entity, str) and entity.startswith('@'):
             entity = entity.removeprefix('@')
 
-        super().__init__(f'TG Channel: @{entity}{f'[{str(forum_id)}]' if forum_id else ''}', filters)
+        super().__init__(
+            f'TG Channel: @{entity}{f'[{str(forum_id)}]' if forum_id else ''}',
+            filters
+        )
 
-        self.client = client
         self.entity = entity
         self.forum_id = forum_id
+
+class TelegramChannelJobsSource(JobsSource[TelegramChannelJobsSourceConfig]):
+    def __init__(self, client: TelegramClient, config: TelegramChannelJobsSourceConfig):
+        super().__init__(config)
+
+        self.client = client
 
     async def fetch(self, since: datetime) -> list[Job]:
         result: list[Job] = []
 
-        messages_iter = self.client.iter_messages(self.entity, reply_to=self.forum_id) if self.forum_id  else self.client.iter_messages(self.entity) 
+        messages_iter = self.client.iter_messages(self.config.entity, reply_to=self.config.forum_id) if self.config.forum_id  else self.client.iter_messages(self.config.entity) 
         async for message in messages_iter:
             if message.date < since:
                 break
 
             has_exclude_keyword = False
-            for keyword in self.filters.exclude_keywords:
+            for keyword in self.config.filters.exclude_keywords:
                 if keyword in message.text:
                     has_exclude_keyword = True
                     break
             if has_exclude_keyword:
                 continue
 
-            if not '*' in self.filters.keywords:
+            if not '*' in self.config.filters.keywords:
                 has_keyword = False
-                for keyword in self.filters.keywords:
+                for keyword in self.config.filters.keywords:
                     if keyword in message.text:
                         has_keyword = True
 

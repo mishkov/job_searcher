@@ -15,13 +15,15 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, R
 from aiogram.enums import ParseMode
 
 from src.job_sources.job_source import JobsSource
-from src.job_sources.telegram_channel.telegram_channel import TelegramChannelJobsSource
+from src.job_sources.telegram_channel.telegram_channel import TelegramChannelJobsSource, TelegramChannelJobsSourceConfig
 from src.search_filter import SearchFilter
 
-from src.job_sources.geek_job_ru.geek_job_ru import GeekJobRuJobsSource
+from src.job_sources.geek_job_ru.geek_job_ru import GeekJobRuJobsSource, GeekJobRuJobsSourceConfig
 
 from src.storage.mysql.base import Base
 from src.storage.mysql.mysql_jobs_search_history_repository import MysqlJobsSearchHistoryRespository
+
+import config
 
 
 load_dotenv()
@@ -68,49 +70,28 @@ async def jobs(message: Message):
             since = await repository.get_last_search_time() if not IS_DEBUG_MODE else datetime.now(timezone.utc) - timedelta(days=7)
             await repository.save_last_search_time(datetime.now())
 
-            no_filters = SearchFilter()
-            common_filters = SearchFilter(keywords=['flutter'])
-            filters_for_groups_with_cv = replace(
-                common_filters,
-                exclude_keywords=[
-                    *common_filters.exclude_keywords,
-                    '#резюме ',
-                    '#resume ',
-                    '#cv ',
-                    ]
-                )
-
-            sources: list[JobsSource] = [
-                GeekJobRuJobsSource('geekjob.ru', common_filters),
-                TelegramChannelJobsSource(client, "flutter_dart_jobs_vakansii", no_filters),
-                TelegramChannelJobsSource(client, "dartlang_jobs", no_filters),
-                TelegramChannelJobsSource(client, "dartuz_jobs", no_filters),
-
-                TelegramChannelJobsSource(client, "evacuatejobs", common_filters),
-                TelegramChannelJobsSource(client, "remote_jobs_relocate", common_filters),
-                TelegramChannelJobsSource(client, "Remoteit", common_filters),
-                TelegramChannelJobsSource(client, "refer_me_it", common_filters),
-                TelegramChannelJobsSource(client, "outstaff_requests_phpdev", common_filters),
-                TelegramChannelJobsSource(client, "gdjobs", common_filters),
-                TelegramChannelJobsSource(client, entity=-1002495603766, filters=common_filters, forum_id=5),
-
-                TelegramChannelJobsSource(client, "mobile_jobs", filters_for_groups_with_cv),
-                TelegramChannelJobsSource(client, "hot_itjobs", filters_for_groups_with_cv),
-                TelegramChannelJobsSource(client, "web30job", filters_for_groups_with_cv),
-            ]
-
             foundJobsCount = 0
 
             status_text = '🔎 Searching in sources...\n'
-            for source in sources:
-                status_text_per_source = f'{status_text}\n🔎 {source.name}'
+            for source_config in config.SOURCES:
+                status_text_per_source = f'{status_text}\n🔎 {source_config.name}'
                 await status_message.edit_text(status_text_per_source)
+
+                source: JobsSource
+                if isinstance(source_config, TelegramChannelJobsSourceConfig):
+                    source = TelegramChannelJobsSource(client, source_config)
+                elif isinstance(source_config, GeekJobRuJobsSourceConfig):
+                    source = GeekJobRuJobsSource(source_config)
+                else:
+                    raise ValueError(f"Unknown source: {type(config)}")
+
+
                 jobs = await source.fetch(
                     since=since if since else datetime.now(timezone.utc) - timedelta(days=7)
                 )
                 
                 if len(jobs) == 0:
-                    status_text = f"{status_text}\n✅ {source.name} [Found: 0]"
+                    status_text = f"{status_text}\n✅ {source_config.name} [Found: 0]"
                     await status_message.edit_text(status_text)
                     
                     continue
@@ -139,12 +120,12 @@ async def jobs(message: Message):
                         await repository.add_seen_job(job)
                     sourceFoundJobs += 1
 
-                    status_text_per_source = f"{status_text}\n⏳ {source.name} [Found: {sourceFoundJobs}]"
+                    status_text_per_source = f"{status_text}\n⏳ {source_config.name} [Found: {sourceFoundJobs}]"
                     await status_message.edit_text(status_text_per_source)
                 
                 foundJobsCount += sourceFoundJobs
                     
-                status_text = f"{status_text}\n✅ {source.name} [Found: {sourceFoundJobs}]"
+                status_text = f"{status_text}\n✅ {source_config.name} [Found: {sourceFoundJobs}]"
                 await status_message.edit_text(status_text)
                 
 
