@@ -50,14 +50,16 @@ class RemoteOkTests(unittest.IsolatedAsyncioTestCase):
     def source_with(self, filters):
         return RemoteOkJobsSource(RemoteOkJobsSourceConfig(filters))
 
-    async def test_official_free_api_fields_and_attribution(self):
+    async def test_official_free_api_fields(self):
         jobs = await self.source.fetch(CUTOFF)
         self.request.assert_called_once_with('https://remoteok.com/api', timeout=15)
         self.response.raise_for_status.assert_called_once()
         self.assertEqual(len(jobs), 1)
         job = jobs[0]
         self.assertEqual(job.title, 'Flutter Engineer')
-        self.assertTrue(job.description.startswith('Source: Remote OK\n'))
+        self.assertEqual(job.description,
+                         'Company: Example Inc\nLocation: Europe\nTags: flutter, mobile\n'
+                         'Build apps & platforms.\nOwn releases.')
         self.assertIn('Company: Example Inc', job.description)
         self.assertIn('Location: Europe', job.description)
         self.assertIn('Tags: flutter, mobile', job.description)
@@ -67,11 +69,6 @@ class RemoteOkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(job.url, vacancy()['url'])
         self.assertNotEqual(job.url, vacancy()['apply_url'])
         self.assertEqual(job.fingerprint, hashlib.sha256(b'remoteok.com:123456').hexdigest())
-
-    async def test_attribution_survives_telegram_description_preview(self):
-        self.response.json.return_value = [METADATA, vacancy(description='<p>' + 'Flutter ' * 200 + '</p>')]
-        job = (await self.source.fetch(CUTOFF))[0]
-        self.assertIn('Source: Remote OK', job.description[:500])
 
     async def test_cutoff_is_inclusive_and_unsorted_feed_is_processed(self):
         self.response.json.return_value = [METADATA,
@@ -140,7 +137,7 @@ class RemoteOkTests(unittest.IsolatedAsyncioTestCase):
             salary_min=None, salary_max=None,
         )]
         job = (await self.source.fetch(CUTOFF))[0]
-        self.assertEqual(job.description, 'Source: Remote OK\n')
+        self.assertEqual(job.description, '')
         self.assertEqual(job.salary, '-')
 
     async def test_salary_missing_zero_one_sided_equal_and_fractional_bounds(self):

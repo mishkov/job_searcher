@@ -102,8 +102,7 @@ class RemoteOkJobsSource(JobsSource[RemoteOkJobsSourceConfig]):
             seen.add(fingerprint)
             jobs.append(Job(
                 title=title,
-                # Keep attribution inside Telegram's truncated description preview.
-                description=f'Source: Remote OK\n{text}',
+                description=text,
                 salary=self._salary(record),
                 is_remote_allowed=True,
                 # API terms require linking to the Remote OK listing, not apply_url.
