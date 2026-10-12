@@ -20,6 +20,11 @@ from src.search_filter import SearchFilter
 
 from src.job_sources.geek_job_ru.geek_job_ru import GeekJobRuJobsSource, GeekJobRuJobsSourceConfig
 from src.job_sources.web3_career.web3_career import Web3CareerFetchError, Web3CareerJobsSource, Web3CareerJobsSourceConfig
+from src.job_sources.welcome_to_the_jungle.welcome_to_the_jungle import (
+    WelcomeToTheJungleFetchError,
+    WelcomeToTheJungleJobsSource,
+    WelcomeToTheJungleJobsSourceConfig,
+)
 
 from src.storage.mysql.base import Base
 from src.storage.mysql.mysql_jobs_search_history_repository import MysqlJobsSearchHistoryRespository
@@ -85,6 +90,8 @@ async def jobs(message: Message):
                     source = GeekJobRuJobsSource(source_config)
                 elif isinstance(source_config, Web3CareerJobsSourceConfig):
                     source = Web3CareerJobsSource(source_config)
+                elif isinstance(source_config, WelcomeToTheJungleJobsSourceConfig):
+                    source = WelcomeToTheJungleJobsSource(source_config)
                 else:
                     raise ValueError(f"Unknown source: {type(config)}")
 
@@ -93,7 +100,7 @@ async def jobs(message: Message):
                     jobs = await source.fetch(
                         since=since if since else datetime.now(timezone.utc) - timedelta(days=7)
                     )
-                except Web3CareerFetchError as error:
+                except (Web3CareerFetchError, WelcomeToTheJungleFetchError) as error:
                     status_text = f"{status_text}\n❌ {source_config.name} [Failed: {str(error)[:300]}]"
                     await status_message.edit_text(status_text)
                     continue

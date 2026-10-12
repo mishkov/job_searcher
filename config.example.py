@@ -3,6 +3,7 @@ from dataclasses import replace
 from src.job_sources.geek_job_ru.geek_job_ru import GeekJobRuJobsSourceConfig
 from src.job_sources.job_source import JobsSourceConfig
 from src.job_sources.telegram_channel.telegram_channel import TelegramChannelJobsSourceConfig
+from src.job_sources.welcome_to_the_jungle.welcome_to_the_jungle import WelcomeToTheJungleJobsSourceConfig
 from src.search_filter import SearchFilter
 
 
@@ -22,6 +23,7 @@ _filters_for_groups_with_cv = replace(
 
 SOURCES: list[JobsSourceConfig] = [
     GeekJobRuJobsSourceConfig(_common_filters),
+    WelcomeToTheJungleJobsSourceConfig(_common_filters),
 
     TelegramChannelJobsSourceConfig("flutter_dart_jobs_vakansii", _no_filters),
 
