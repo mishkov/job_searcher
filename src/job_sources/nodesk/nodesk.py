@@ -1,20 +1,15 @@
 import asyncio
 import hashlib
-import json
 import math
 from datetime import datetime, timezone
-from urllib.parse import urlencode, urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit
 
-import requests
 from bs4 import BeautifulSoup
 
 from src.job import Job
 from src.job_sources.job_source import JobsSource, JobsSourceConfig
+from src.job_sources.nodesk.api import NoDeskApi, NoDeskFetchError
 from src.search_filter import SearchFilter
-
-
-class NoDeskFetchError(RuntimeError):
-    pass
 
 
 class NoDeskJobsSourceConfig(JobsSourceConfig):
@@ -24,18 +19,11 @@ class NoDeskJobsSourceConfig(JobsSourceConfig):
 
 class NoDeskJobsSource(JobsSource[NoDeskJobsSourceConfig]):
     BASE_URL = 'https://nodesk.co/'
-    API_URL = 'https://0586l1sok8-dsn.algolia.net/1/indexes/*/queries'
-    # Public search credentials shipped in NoDesk's frontend, not an account token.
-    API_PARAMS = {
-        'x-algolia-application-id': '0586L1SOK8',
-        'x-algolia-api-key': '8dacb58c6f375cba28e19ecf1f03e9e1',
-    }
-    HEADERS = {
-        'User-Agent': 'PostmanRuntime/7.43.0',
-        'Origin': 'https://nodesk.co',
-        'Referer': BASE_URL,
-    }
     PAGE_SIZE = 90
+
+    def __init__(self, config: NoDeskJobsSourceConfig, api: NoDeskApi):
+        super().__init__(config)
+        self._api = api
 
     async def fetch(self, since: datetime) -> list[Job]:
         return await asyncio.to_thread(self._fetch, since)
@@ -48,19 +36,9 @@ class NoDeskJobsSource(JobsSource[NoDeskJobsSourceConfig]):
         seen: set[str] = set()
         page = 0
         while True:
-            response = self._request(self.API_URL, body={'requests': [{
-                'indexName': 'jobPosts',
-                'params': urlencode({
-                    'filters': 'searchFilter:remote-jobs',
-                    'hitsPerPage': self.PAGE_SIZE,
-                    # Title/tag queries would lose description-only matches.
-                    'query': '',
-                    'page': page,
-                    'attributesToHighlight': '[]',
-                }),
-            }]})
+            payload = self._api.get_jobs_page(page, self.PAGE_SIZE)
             try:
-                records, page_count = self._extract_page(response.json(), page)
+                records, page_count = self._extract_page(payload, page)
                 for record in records:
                     published_at = datetime.fromisoformat(record['datePublished'])
                     if published_at.tzinfo is None:
@@ -76,10 +54,9 @@ class NoDeskJobsSource(JobsSource[NoDeskJobsSourceConfig]):
                     url = self._listing_url(record)
                     details = None
                     if urlsplit(url).hostname in ('nodesk.co', 'www.nodesk.co'):
-                        detail_response = self._request(url, skip_missing=True)
-                        if detail_response is None:
+                        details = self._api.get_job_posting(url)
+                        if details is None:
                             continue
-                        details = self._job_posting(detail_response.text)
                     # Sponsored external vacancies retain their supplied copy and URL.
                     # is_ad never determines whether a vacancy is included.
                     job = self._parse_job(record, url, details)
@@ -93,27 +70,6 @@ class NoDeskJobsSource(JobsSource[NoDeskJobsSourceConfig]):
                 break
             page += 1
         return jobs
-
-    def _request(self, url: str, *, body: dict | None = None, skip_missing: bool = False):
-        try:
-            if body is None:
-                response = requests.get(url, headers=self.HEADERS, timeout=15)
-            else:
-                response = requests.post(
-                    url, params=self.API_PARAMS, json=body, headers=self.HEADERS, timeout=15,
-                )
-            if skip_missing and response.status_code in (404, 410):
-                return None
-            response.raise_for_status()
-            return response
-        except requests.HTTPError as error:
-            status = error.response.status_code if error.response is not None else 'unknown'
-            message = f'NoDesk returned HTTP {status}'
-            if status == 429:
-                message += '; rate limit exceeded, try again later'
-            raise NoDeskFetchError(message) from None
-        except requests.RequestException:
-            raise NoDeskFetchError('NoDesk request failed; check network connectivity') from None
 
     def _extract_page(self, payload, page: int) -> tuple[list[dict], int]:
         if not isinstance(payload, dict) or not isinstance(payload.get('results'), list):
@@ -148,28 +104,6 @@ class NoDeskJobsSource(JobsSource[NoDeskJobsSourceConfig]):
             if len(segments) != 2 or segments[0] != 'remote-jobs':
                 raise ValueError('Invalid NoDesk listing URL')
         return url
-
-    def _job_posting(self, html: str) -> dict:
-        soup = BeautifulSoup(html, 'html.parser')
-        for script in soup.find_all('script', type='application/ld+json'):
-            try:
-                payload = json.loads(script.get_text())
-            except ValueError:
-                continue
-            candidates = payload if isinstance(payload, list) else [payload]
-            for candidate in candidates:
-                if not isinstance(candidate, dict):
-                    continue
-                graph = candidate.get('@graph')
-                if isinstance(graph, list):
-                    candidates.extend(graph)
-                kind = candidate.get('@type')
-                if kind == 'JobPosting' or isinstance(kind, list) and 'JobPosting' in kind:
-                    description = candidate.get('description')
-                    if not isinstance(description, str) or not description.strip():
-                        raise ValueError('Missing job description')
-                    return candidate
-        raise ValueError('Missing JobPosting structured data')
 
     def _names(self, record: dict, field: str) -> list[str]:
         values = record.get(field) or []

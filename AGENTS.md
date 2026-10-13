@@ -1,5 +1,8 @@
 # Git workflow for AI-agent
 
+Before implementing changes, read the files under `docs/` and follow their
+applicable implementation policies.
+
 For implementation tasks:
 
 1. Work in a separate Codex/Claude|AI-agent/git worktree.
