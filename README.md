@@ -27,6 +27,11 @@ token to your website; confirm with Web3.career whether your Telegram bot is
 covered by that usage scope. The source no longer needs Playwright or a browser.
 API failures are reported without stopping searches of the other sources.
 
+NoDesk requires no API token and is included in `config.example.py`. To enable it
+in an existing `config.py`, import `NoDeskJobsSourceConfig` from
+`src.job_sources.nodesk.nodesk` and add
+`NoDeskJobsSourceConfig(SearchFilter(keywords=['flutter']))` to `SOURCES`.
+
 Welcome to the Jungle requires no API token and is included in
 `config.example.py`. To enable it in an existing `config.py`, import
 `WelcomeToTheJungleJobsSourceConfig` from
