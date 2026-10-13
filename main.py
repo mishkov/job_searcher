@@ -25,6 +25,10 @@ from src.job_sources.nodesk.nodesk import NoDeskFetchError, NoDeskJobsSource, No
 from src.job_sources.nodesk.api import NoDeskApi
 from src.job_sources.nodesk.python_requests_api import PythonRequestsModuleNoDeskApi
 from src.job_sources.nodesk.sql_cached_api import SqlCachedNoDeskApi
+from src.job_sources.relocate_me.api import RelocateMeApi, RelocateMeFetchError
+from src.job_sources.relocate_me.python_requests_api import PythonRequestsModuleRelocateMeApi
+from src.job_sources.relocate_me.relocate_me import RelocateMeJobsSource, RelocateMeJobsSourceConfig
+from src.job_sources.relocate_me.sql_cached_api import SqlCachedRelocateMeApi
 from src.job_sources.welcome_to_the_jungle.welcome_to_the_jungle import (
     WelcomeToTheJungleFetchError,
     WelcomeToTheJungleJobsSource,
@@ -47,10 +51,12 @@ import config
 load_dotenv()
 
 nodesk_api: NoDeskApi = PythonRequestsModuleNoDeskApi()
+relocate_me_api: RelocateMeApi = PythonRequestsModuleRelocateMeApi()
 wwr_api: WeWorkRemotelyApi = PythonRequestsModuleWeWorkRemotelyApi()
 cache_path = os.environ.get('CACHE_PATH')
 if cache_path and cache_path.strip():
     nodesk_api = SqlCachedNoDeskApi(nodesk_api, cache_path)
+    relocate_me_api = SqlCachedRelocateMeApi(relocate_me_api, cache_path)
     wwr_api = SqlCachedWeWorkRemotelyApi(wwr_api, cache_path)
 
 IS_DEBUG_MODE=os.environ["IS_DEBUG_MODE"]
@@ -114,6 +120,8 @@ async def jobs(message: Message):
                     source = RemoteOkJobsSource(source_config)
                 elif isinstance(source_config, NoDeskJobsSourceConfig):
                     source = NoDeskJobsSource(source_config, nodesk_api)
+                elif isinstance(source_config, RelocateMeJobsSourceConfig):
+                    source = RelocateMeJobsSource(source_config, relocate_me_api)
                 elif isinstance(source_config, WelcomeToTheJungleJobsSourceConfig):
                     source = WelcomeToTheJungleJobsSource(source_config)
                 elif isinstance(source_config, WeWorkRemotelyJobsSourceConfig):
@@ -128,7 +136,7 @@ async def jobs(message: Message):
                     )
                 except (
                     Web3CareerFetchError, WelcomeToTheJungleFetchError, RemoteOkFetchError,
-                    NoDeskFetchError, WeWorkRemotelyFetchError,
+                    NoDeskFetchError, WeWorkRemotelyFetchError, RelocateMeFetchError,
                 ) as error:
                     status_text = f"{status_text}\n❌ {source_config.name} [Failed: {str(error)[:300]}]"
                     await status_message.edit_text(status_text)
