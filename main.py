@@ -21,6 +21,7 @@ from src.search_filter import SearchFilter
 from src.job_sources.geek_job_ru.geek_job_ru import GeekJobRuJobsSource, GeekJobRuJobsSourceConfig
 from src.job_sources.web3_career.web3_career import Web3CareerFetchError, Web3CareerJobsSource, Web3CareerJobsSourceConfig
 from src.job_sources.remote_ok.remote_ok import RemoteOkFetchError, RemoteOkJobsSource, RemoteOkJobsSourceConfig
+from src.job_sources.nodesk.nodesk import NoDeskFetchError, NoDeskJobsSource, NoDeskJobsSourceConfig
 from src.job_sources.welcome_to_the_jungle.welcome_to_the_jungle import (
     WelcomeToTheJungleFetchError,
     WelcomeToTheJungleJobsSource,
@@ -94,6 +95,8 @@ async def jobs(message: Message):
                     source = Web3CareerJobsSource(source_config)
                 elif isinstance(source_config, RemoteOkJobsSourceConfig):
                     source = RemoteOkJobsSource(source_config)
+                elif isinstance(source_config, NoDeskJobsSourceConfig):
+                    source = NoDeskJobsSource(source_config)
                 elif isinstance(source_config, WelcomeToTheJungleJobsSourceConfig):
                     source = WelcomeToTheJungleJobsSource(source_config)
                 else:
@@ -104,7 +107,7 @@ async def jobs(message: Message):
                     jobs = await source.fetch(
                         since=since if since else datetime.now(timezone.utc) - timedelta(days=7)
                     )
-                except (Web3CareerFetchError, WelcomeToTheJungleFetchError, RemoteOkFetchError) as error:
+                except (Web3CareerFetchError, WelcomeToTheJungleFetchError, RemoteOkFetchError, NoDeskFetchError) as error:
                     status_text = f"{status_text}\n❌ {source_config.name} [Failed: {str(error)[:300]}]"
                     await status_message.edit_text(status_text)
                     continue
