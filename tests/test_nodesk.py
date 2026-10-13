@@ -12,6 +12,7 @@ from src.job_sources.nodesk.nodesk import (
     NoDeskJobsSource,
     NoDeskJobsSourceConfig,
 )
+from src.job_sources.nodesk.python_requests_api import PythonRequestsModuleNoDeskApi
 from src.search_filter import SearchFilter
 
 
@@ -74,15 +75,16 @@ class NoDeskTests(unittest.IsolatedAsyncioTestCase):
         self.listings = [listing_response([vacancy()])]
         self.details = detail_response()
         self.detail_responses = {}
-        post_patch = patch('src.job_sources.nodesk.nodesk.requests.post', side_effect=self.search_request)
-        get_patch = patch('src.job_sources.nodesk.nodesk.requests.get', side_effect=self.detail_request)
+        post_patch = patch('src.job_sources.nodesk.python_requests_api.requests.post', side_effect=self.search_request)
+        get_patch = patch('src.job_sources.nodesk.python_requests_api.requests.get', side_effect=self.detail_request)
         self.search = post_patch.start()
         self.get = get_patch.start()
         self.addCleanup(post_patch.stop)
         self.addCleanup(get_patch.stop)
 
     def source_with(self, filters):
-        return NoDeskJobsSource(NoDeskJobsSourceConfig(filters))
+        self.api = PythonRequestsModuleNoDeskApi()
+        return NoDeskJobsSource(NoDeskJobsSourceConfig(filters), self.api)
 
     def search_request(self, *args, **kwargs):
         return self.listings.pop(0)
@@ -97,10 +99,10 @@ class NoDeskTests(unittest.IsolatedAsyncioTestCase):
     async def test_public_raw_json_request_and_full_description_fields(self):
         job = (await self.source.fetch(CUTOFF))[0]
         call = self.search.call_args
-        self.assertEqual(call.args, (self.source.API_URL,))
-        self.assertEqual(call.kwargs['params'], self.source.API_PARAMS)
+        self.assertEqual(call.args, (self.api.API_URL,))
+        self.assertEqual(call.kwargs['params'], self.api.API_PARAMS)
         self.assertEqual(call.kwargs['headers']['Origin'], 'https://nodesk.co')
-        self.assertEqual(call.kwargs['timeout'], 15)
+        self.assertEqual(call.kwargs['timeout'], 30)
         self.assertEqual(call.kwargs['json']['requests'][0]['indexName'], 'jobPosts')
         params = self.query_params()[0]
         self.assertEqual(params['query'], [''])
@@ -116,7 +118,7 @@ class NoDeskTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(job.is_remote_allowed)
         self.assertEqual(job.url, 'https://nodesk.co/remote-jobs/example-mobile-engineer/')
         self.assertEqual(job.fingerprint, hashlib.sha256(b'nodesk.co:job-1').hexdigest())
-        self.get.assert_called_once_with(job.url, headers=self.source.HEADERS, timeout=15)
+        self.get.assert_called_once_with(job.url, headers=self.api.HEADERS, timeout=30)
 
     async def test_all_pages_are_fetched_despite_old_first_page(self):
         self.listings = [

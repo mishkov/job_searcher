@@ -22,6 +22,9 @@ from src.job_sources.geek_job_ru.geek_job_ru import GeekJobRuJobsSource, GeekJob
 from src.job_sources.web3_career.web3_career import Web3CareerFetchError, Web3CareerJobsSource, Web3CareerJobsSourceConfig
 from src.job_sources.remote_ok.remote_ok import RemoteOkFetchError, RemoteOkJobsSource, RemoteOkJobsSourceConfig
 from src.job_sources.nodesk.nodesk import NoDeskFetchError, NoDeskJobsSource, NoDeskJobsSourceConfig
+from src.job_sources.nodesk.api import NoDeskApi
+from src.job_sources.nodesk.python_requests_api import PythonRequestsModuleNoDeskApi
+from src.job_sources.nodesk.sql_cached_api import SqlCachedNoDeskApi
 from src.job_sources.welcome_to_the_jungle.welcome_to_the_jungle import (
     WelcomeToTheJungleFetchError,
     WelcomeToTheJungleJobsSource,
@@ -35,6 +38,11 @@ import config
 
 
 load_dotenv()
+
+nodesk_api: NoDeskApi = PythonRequestsModuleNoDeskApi()
+cache_path = os.environ.get('CACHE_PATH')
+if cache_path and cache_path.strip():
+    nodesk_api = SqlCachedNoDeskApi(nodesk_api, cache_path)
 
 IS_DEBUG_MODE=os.environ["IS_DEBUG_MODE"]
 
@@ -96,7 +104,7 @@ async def jobs(message: Message):
                 elif isinstance(source_config, RemoteOkJobsSourceConfig):
                     source = RemoteOkJobsSource(source_config)
                 elif isinstance(source_config, NoDeskJobsSourceConfig):
-                    source = NoDeskJobsSource(source_config)
+                    source = NoDeskJobsSource(source_config, nodesk_api)
                 elif isinstance(source_config, WelcomeToTheJungleJobsSourceConfig):
                     source = WelcomeToTheJungleJobsSource(source_config)
                 else:
