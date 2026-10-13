@@ -6,6 +6,7 @@ from src.job_sources.remote_ok.remote_ok import RemoteOkJobsSourceConfig
 from src.job_sources.nodesk.nodesk import NoDeskJobsSourceConfig
 from src.job_sources.telegram_channel.telegram_channel import TelegramChannelJobsSourceConfig
 from src.job_sources.welcome_to_the_jungle.welcome_to_the_jungle import WelcomeToTheJungleJobsSourceConfig
+from src.job_sources.we_work_remotely.we_work_remotely import WeWorkRemotelyJobsSourceConfig
 from src.search_filter import SearchFilter
 
 
@@ -27,6 +28,7 @@ SOURCES: list[JobsSourceConfig] = [
     GeekJobRuJobsSourceConfig(_common_filters),
     RemoteOkJobsSourceConfig(_common_filters),
     NoDeskJobsSourceConfig(_common_filters),
+    WeWorkRemotelyJobsSourceConfig(_common_filters),
     WelcomeToTheJungleJobsSourceConfig(_common_filters),
 
     TelegramChannelJobsSourceConfig("flutter_dart_jobs_vakansii", _no_filters),

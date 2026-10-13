@@ -1,5 +1,9 @@
 # Cache implementation policy
 
+This document is a general guide for implementing caches, not a description of
+every cache implementation. Provider examples illustrate shared policies; do not
+add sections describing individual providers' cache behavior.
+
 Configure a disposable cache directory in `.env`:
 
 ```dotenv
