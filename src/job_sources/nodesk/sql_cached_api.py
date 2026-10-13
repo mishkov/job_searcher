@@ -63,7 +63,8 @@ class SqlCachedNoDeskApi(NoDeskApi):
     def _write(self, url: str, posting: dict):
         try:
             payload = json.dumps(posting, allow_nan=False)
-            cached_at = time.time()
+            now = time.time()
+            cached_at = now
             # Recreate the directory on every write; it may disappear at any time.
             self._database_path.parent.mkdir(parents=True, exist_ok=True)
             with closing(sqlite3.connect(self._database_path, timeout=0.1)) as database:
@@ -80,7 +81,7 @@ class SqlCachedNoDeskApi(NoDeskApi):
                         cached_at = excluded.cached_at, payload = excluded.payload
                 ''', (url, cached_at, payload))
                 database.execute('DELETE FROM job_details WHERE cached_at <= ?',
-                                 (cached_at - self._ttl_seconds,))
+                                 (now - self._ttl_seconds,))
                 database.commit()
         except (OSError, sqlite3.Error, ValueError, TypeError):
             logger.debug('NoDesk cache write failed; using API response', exc_info=True)

@@ -61,4 +61,4 @@ filter changes, and successful entries surviving a later API failure. Delete
 the cache directory between calls and during reads/writes. Test corrupt data,
 unwritable paths, and database locks; they must behave like cache misses or
 ignored writes. Verify listing discovery remains fresh and upstream errors
-still propagate. NoDesk HTTP requests use a 30-second timeout.
+still propagate.
