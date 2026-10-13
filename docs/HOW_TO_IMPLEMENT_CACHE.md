@@ -1,5 +1,9 @@
 # Cache implementation policy
 
+This document is a general guide for implementing caches, not a description of
+every cache implementation. Provider examples illustrate shared policies; do not
+add sections describing individual providers' cache behavior.
+
 Configure a disposable cache directory in `.env`:
 
 ```dotenv
@@ -62,20 +66,3 @@ the cache directory between calls and during reads/writes. Test corrupt data,
 unwritable paths, and database locks; they must behave like cache misses or
 ignored writes. Verify listing discovery remains fresh and upstream errors
 still propagate.
-
-## We Work Remotely RSS
-
-`WeWorkRemotelyJobsSource` uses the ten category feeds because the combined feed
-caps each category at ten entries. Full descriptions are already in RSS, so
-there are no separate detail requests to cache.
-
-`SqlCachedWeWorkRemotelyApi` stores unfiltered, parsed category feeds and HTTP
-validators in `we_work_remotely/feeds-v1.sqlite3` under `CACHE_PATH`. Every run
-checks WWR with `If-None-Match` / `If-Modified-Since`; only an HTTP 304 permits
-reuse of cached entries. HTTP 200 replaces the category's snapshot, including
-empty feeds and removed jobs. Validators expire after 24 hours without successful
-revalidation. Each successful category is persisted before fetching the next.
-Apply current date, expiry, keyword and exclusion filters after revalidation.
-Cache read failures fall back to unconditional requests; failed writes preserve
-the successful response. Upstream errors propagate without serving a cached feed. With blank or unset `CACHE_PATH`, requests are
-unconditional and no cache is used.
