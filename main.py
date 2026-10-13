@@ -31,6 +31,13 @@ from src.job_sources.welcome_to_the_jungle.welcome_to_the_jungle import (
     WelcomeToTheJungleJobsSourceConfig,
 )
 
+from src.job_sources.we_work_remotely.api import WeWorkRemotelyApi, WeWorkRemotelyFetchError
+from src.job_sources.we_work_remotely.python_requests_api import PythonRequestsModuleWeWorkRemotelyApi
+from src.job_sources.we_work_remotely.sql_cached_api import SqlCachedWeWorkRemotelyApi
+from src.job_sources.we_work_remotely.we_work_remotely import (
+    WeWorkRemotelyJobsSource, WeWorkRemotelyJobsSourceConfig,
+)
+
 from src.storage.mysql.base import Base
 from src.storage.mysql.mysql_jobs_search_history_repository import MysqlJobsSearchHistoryRespository
 
@@ -40,9 +47,11 @@ import config
 load_dotenv()
 
 nodesk_api: NoDeskApi = PythonRequestsModuleNoDeskApi()
+wwr_api: WeWorkRemotelyApi = PythonRequestsModuleWeWorkRemotelyApi()
 cache_path = os.environ.get('CACHE_PATH')
 if cache_path and cache_path.strip():
     nodesk_api = SqlCachedNoDeskApi(nodesk_api, cache_path)
+    wwr_api = SqlCachedWeWorkRemotelyApi(wwr_api, cache_path)
 
 IS_DEBUG_MODE=os.environ["IS_DEBUG_MODE"]
 
@@ -107,6 +116,8 @@ async def jobs(message: Message):
                     source = NoDeskJobsSource(source_config, nodesk_api)
                 elif isinstance(source_config, WelcomeToTheJungleJobsSourceConfig):
                     source = WelcomeToTheJungleJobsSource(source_config)
+                elif isinstance(source_config, WeWorkRemotelyJobsSourceConfig):
+                    source = WeWorkRemotelyJobsSource(source_config, wwr_api)
                 else:
                     raise ValueError(f"Unknown source: {type(config)}")
 
@@ -115,7 +126,10 @@ async def jobs(message: Message):
                     jobs = await source.fetch(
                         since=since if since else datetime.now(timezone.utc) - timedelta(days=7)
                     )
-                except (Web3CareerFetchError, WelcomeToTheJungleFetchError, RemoteOkFetchError, NoDeskFetchError) as error:
+                except (
+                    Web3CareerFetchError, WelcomeToTheJungleFetchError, RemoteOkFetchError,
+                    NoDeskFetchError, WeWorkRemotelyFetchError,
+                ) as error:
                     status_text = f"{status_text}\n❌ {source_config.name} [Failed: {str(error)[:300]}]"
                     await status_message.edit_text(status_text)
                     continue
