@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 import requests
 from bs4 import BeautifulSoup
 
+from src.error_reporting import posting_context, update_error_context
 from src.job import Job
 from src.job_sources.job_source import JobsSource, JobsSourceConfig
 from src.search_filter import SearchFilter
@@ -61,6 +62,7 @@ class RemoteOkJobsSource(JobsSource[RemoteOkJobsSourceConfig]):
         seen: set[str] = set()
 
         for record in records:
+            update_error_context(operation='parse_posting', posting=posting_context(record))
             if self._posted_at(record) < cutoff:
                 continue
             for field in ('position', 'description', 'company', 'location'):

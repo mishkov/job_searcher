@@ -5,6 +5,7 @@ from telethon import TelegramClient
 from telethon.hints import EntityLike
 from telethon.tl.types import Channel
 
+from src.error_reporting import posting_context, update_error_context
 from src.job import Job
 from src.job_sources.job_source import JobsSource, JobsSourceConfig
 from src.search_filter import SearchFilter
@@ -32,7 +33,15 @@ class TelegramChannelJobsSource(JobsSource[TelegramChannelJobsSourceConfig]):
         result: list[Job] = []
 
         messages_iter = self.client.iter_messages(self.config.entity, reply_to=self.config.forum_id) if self.config.forum_id  else self.client.iter_messages(self.config.entity) 
-        async for message in messages_iter:
+        messages_iter = aiter(messages_iter)
+        while True:
+            update_error_context(operation='fetch_messages', channel=self.config.entity,
+                                 forum_id=self.config.forum_id, posting=None)
+            try:
+                message = await anext(messages_iter)
+            except StopAsyncIteration:
+                break
+            update_error_context(operation='process_message', posting={'message_id': message.id})
             if message.date < since:
                 break
 
@@ -58,7 +67,9 @@ class TelegramChannelJobsSource(JobsSource[TelegramChannelJobsSourceConfig]):
                 if not has_keyword:
                     continue
 
+            update_error_context(operation='resolve_message_url')
             url = await self._get_message_url(message)
+            update_error_context(operation='process_message', posting={'message_id': message.id, **posting_context({'url': url})})
             result.append(Job(
                 '-',
                 message.text,

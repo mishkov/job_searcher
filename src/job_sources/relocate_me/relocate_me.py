@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 from datetime import datetime, timezone
 
+from src.error_reporting import posting_context, update_error_context
 from src.job import Job
 from src.job_sources.job_source import JobsSource, JobsSourceConfig
 from src.job_sources.relocate_me.api import (
@@ -31,6 +32,7 @@ class RelocateMeJobsSource(JobsSource[RelocateMeJobsSourceConfig]):
         seen = set()
         page = 1
         while True:
+            update_error_context(operation='fetch_listing', page=page, posting=None)
             payload = self._api.get_jobs_page(page)
             try:
                 if not isinstance(payload, dict) or not isinstance(payload['urls'], list):
@@ -40,13 +42,16 @@ class RelocateMeJobsSource(JobsSource[RelocateMeJobsSourceConfig]):
                                               or next_page > 100 or not payload['urls']):
                     raise ValueError('Invalid pagination')
                 for value in payload['urls']:
+                    update_error_context(operation='parse_posting', posting=posting_context({'url': value}))
                     url, identity = listing_url(value)
                     if identity in seen:
                         continue
                     seen.add(identity)
+                    update_error_context(operation='fetch_posting')
                     posting = self._api.get_job_posting(url)
                     if posting is None:
                         continue
+                    update_error_context(operation='parse_posting', posting={**posting_context(posting), 'url': url})
                     validate_posting(posting)
                     if posting['id'] != identity:
                         raise ValueError('Mismatched job identity')

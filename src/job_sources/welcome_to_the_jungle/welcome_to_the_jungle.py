@@ -8,6 +8,7 @@ from uuid import uuid4
 import requests
 from bs4 import BeautifulSoup
 
+from src.error_reporting import posting_context, update_error_context
 from src.job import Job
 from src.job_sources.job_source import JobsSource, JobsSourceConfig
 from src.search_filter import SearchFilter
@@ -44,10 +45,12 @@ class WelcomeToTheJungleJobsSource(JobsSource[WelcomeToTheJungleJobsSourceConfig
                 params = {'include_empty_salary': 'true', 'page': page, 'query_id': query_id}
                 if keyword:
                     params['job_title'] = keyword
+                update_error_context(operation='fetch_listing', page=page, keyword=keyword, posting=None)
                 payload = self._request_json(self.API_URL, params=params)
                 try:
                     records, page_count = self._extract_page(payload, page)
                     for record in records:
+                        update_error_context(operation='parse_posting', posting=posting_context(record))
                         if record.get('status') != 'published':
                             continue
                         # Results are relevance-ranked, so old jobs cannot end pagination.
@@ -62,12 +65,15 @@ class WelcomeToTheJungleJobsSource(JobsSource[WelcomeToTheJungleJobsSourceConfig
                         # Cache processed identities even when full-text filters reject them.
                         seen.add(job.fingerprint)
                         organization_slug, slug = self._job_slugs(record)
+                        update_error_context(operation='fetch_posting',
+                                             posting={**posting_context(record), **posting_context({'url': job.url})})
                         details_payload = self._request_json(
                             self.DETAIL_API_URL.format(organization=organization_slug, job=slug),
                             skip_missing=True,
                         )
                         if details_payload is None:
                             continue
+                        update_error_context(operation='parse_posting')
                         details = details_payload['job']
                         if not isinstance(details, dict):
                             raise ValueError('Expected job details')

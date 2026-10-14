@@ -3,6 +3,7 @@ from xml.etree import ElementTree
 
 import requests
 
+from src.error_reporting import posting_context, update_error_context
 from src.job_sources.we_work_remotely.api import (
     CATEGORIES, FIELDS, FeedResponse, WeWorkRemotelyApi, WeWorkRemotelyFetchError, validate_jobs,
 )
@@ -56,6 +57,9 @@ class PythonRequestsModuleWeWorkRemotelyApi(WeWorkRemotelyApi):
                 raise ValueError('Expected RSS channel')
             jobs = [{field: item.findtext(field) or '' for field in FIELDS}
                     for item in channel.findall('item')]
-            return FeedResponse(validate_jobs(jobs), **validators)
+            for job in jobs:
+                update_error_context(operation='parse_posting', posting=posting_context(job))
+                validate_jobs([job])
+            return FeedResponse(jobs, **validators)
         except (ElementTree.ParseError, ValueError, TypeError, IndexError, OverflowError):
             raise WeWorkRemotelyFetchError('We Work Remotely returned invalid RSS job data') from None
