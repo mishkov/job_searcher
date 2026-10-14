@@ -23,6 +23,11 @@ class TelegramChannelJobsSourceConfig(JobsSourceConfig):
         self.entity = entity
         self.forum_id = forum_id
 
+    @property
+    def history_identity(self) -> str:
+        entity = str(self.entity).removeprefix('@').lower()
+        return f'telegram:{entity}:{self.forum_id or 0}'
+
 class TelegramChannelJobsSource(JobsSource[TelegramChannelJobsSourceConfig]):
     def __init__(self, client: TelegramClient, config: TelegramChannelJobsSourceConfig):
         super().__init__(config)

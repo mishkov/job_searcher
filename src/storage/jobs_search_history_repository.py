@@ -6,11 +6,11 @@ from src.job import Job
 
 class JobsSearchHistoryRepository(ABC):
     @abstractmethod
-    async def save_last_search_time(self, datetime: datetime):
+    async def save_last_search_time(self, source_key: str, started_at: datetime):
         pass
 
     @abstractmethod
-    async def get_last_search_time(self) -> datetime | None:
+    async def get_last_search_time(self, source_key: str) -> datetime | None:
         pass
 
     @abstractmethod

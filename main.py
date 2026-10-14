@@ -63,7 +63,8 @@ if cache_path and cache_path.strip():
     relocate_me_api = SqlCachedRelocateMeApi(relocate_me_api, cache_path, reporter=error_reporter)
     wwr_api = SqlCachedWeWorkRemotelyApi(wwr_api, cache_path, reporter=error_reporter)
 
-IS_DEBUG_MODE=os.environ["IS_DEBUG_MODE"]
+IS_DEBUG_MODE = os.environ["IS_DEBUG_MODE"].strip().lower() in {"1", "true", "yes", "on"}
+search_lock = asyncio.Lock()
 
 keyboard = ReplyKeyboardMarkup(
     keyboard=[
@@ -95,6 +96,12 @@ async def start(message: Message):
 @dp.message(Command("search"))
 @report_async_errors(error_reporter, operation='search')
 async def jobs(message: Message):
+    # A search owns the Telegram client and delivery/history sequence until done.
+    async with search_lock:
+        await _search_jobs(message)
+
+
+async def _search_jobs(message: Message):
     status_text ='🔎 Starting jobs search...'
     update_error_context(operation='send_search_status')
     status_message = await message.answer(status_text)
@@ -104,22 +111,18 @@ async def jobs(message: Message):
         status_text = '🗃️ Starting database...'
         update_error_context(operation='open_history')
         with Session(engine) as session:
-            status_text = '⏰ Updating last search time...'
-            await status_message.edit_text(status_text)
             repository = MysqlJobsSearchHistoryRespository(session)
-            update_error_context(operation='read_search_history')
-            since = await repository.get_last_search_time() if not IS_DEBUG_MODE else datetime.now(timezone.utc) - timedelta(days=7)
-            if not IS_DEBUG_MODE:
-                update_error_context(operation='save_search_time')
-                await repository.save_last_search_time(datetime.now())
 
             foundJobsCount = 0
 
             status_text = '🔎 Searching in sources...\n'
             for source_config in config.SOURCES:
+                source_key = source_config.history_key
+                update_error_context(**source_error_context(source_config), since=None,
+                                     operation='read_search_history', posting=None)
+                since = await repository.get_last_search_time(source_key) if not IS_DEBUG_MODE else None
                 source_since = since if since else datetime.now(timezone.utc) - timedelta(days=7)
-                update_error_context(**source_error_context(source_config), since=source_since.isoformat(),
-                                     operation='source_status', posting=None)
+                update_error_context(since=source_since.isoformat(), operation='source_status')
                 status_text_per_source = f'{status_text}\n🔎 {source_config.name}'
                 await status_message.edit_text(status_text_per_source)
 
@@ -146,6 +149,7 @@ async def jobs(message: Message):
 
 
                 source = ErrorReportingJobsSource(source, error_reporter)
+                started_at = datetime.now(timezone.utc)
                 try:
                     jobs = await source.fetch(since=source_since)
                 except (
@@ -157,18 +161,11 @@ async def jobs(message: Message):
                     await status_message.edit_text(status_text)
                     continue
 
-                update_error_context(operation='source_status', posting=None)
-                if len(jobs) == 0:
-                    status_text = f"{status_text}\n✅ {source_config.name} [Found: 0]"
-                    await status_message.edit_text(status_text)
-
-                    continue
-
                 sourceFoundJobs = 0
                 for job in jobs:
                     update_error_context(operation='check_seen_job', posting=posting_context(vars(job)))
 
-                    if await repository.seen(job) and not IS_DEBUG_MODE:
+                    if not IS_DEBUG_MODE and await repository.seen(job):
                         continue
 
                     update_error_context(operation='send_job')
@@ -194,6 +191,10 @@ async def jobs(message: Message):
                     update_error_context(operation='source_status')
                     status_text_per_source = f"{status_text}\n⏳ {source_config.name} [Found: {sourceFoundJobs}]"
                     await status_message.edit_text(status_text_per_source)
+
+                if not IS_DEBUG_MODE:
+                    update_error_context(operation='save_search_time', posting=None)
+                    await repository.save_last_search_time(source_key, started_at)
 
                 update_error_context(operation='source_status', posting=None)
                 foundJobsCount += sourceFoundJobs
