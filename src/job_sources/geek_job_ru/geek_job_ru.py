@@ -8,6 +8,7 @@ import requests
 from bs4 import BeautifulSoup
 import dateparser
 
+from src.error_reporting import posting_context, update_error_context
 from src.job_sources.job_source import JobsSource, JobsSourceConfig
 from src.search_filter import SearchFilter
 from src.job import Job
@@ -23,7 +24,9 @@ class GeekJobRuJobsSource(JobsSource[GeekJobRuJobsSourceConfig]):
     async def fetch(self, since: datetime) -> list[Job]:
         jobs: list[Job] = []
         for url in self._collect_job_urls(since):
+            update_error_context(operation='fetch_posting', posting=posting_context({'url': url}))
             response = requests.get(url, timeout=15)
+            update_error_context(operation='parse_posting')
             soup = BeautifulSoup(response.text, "html.parser")
 
             element = soup.select_one("h1")
@@ -89,6 +92,7 @@ class GeekJobRuJobsSource(JobsSource[GeekJobRuJobsSourceConfig]):
             if keyword != '*':
                 search_url += '&qs=%22' + keyword +'%22'
 
+            update_error_context(operation='fetch_listing', page=page, keyword=keyword, posting=None)
             response = requests.get(search_url)
             response.raise_for_status()
             data = response.json()
@@ -96,6 +100,7 @@ class GeekJobRuJobsSource(JobsSource[GeekJobRuJobsSourceConfig]):
             has_next_page = data['nextpage'] > 0
 
             for vacancy_data in data['data']:
+                update_error_context(operation='parse_posting', posting=posting_context(vacancy_data))
                 if self._is_outdated(since, vacancy_data):
                     continue
 

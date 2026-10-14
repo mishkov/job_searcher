@@ -6,6 +6,7 @@ from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 
+from src.error_reporting import posting_context, update_error_context
 from src.job import Job
 from src.job_sources.job_source import JobsSource, JobsSourceConfig
 from src.job_sources.nodesk.api import NoDeskApi, NoDeskFetchError
@@ -36,10 +37,12 @@ class NoDeskJobsSource(JobsSource[NoDeskJobsSourceConfig]):
         seen: set[str] = set()
         page = 0
         while True:
+            update_error_context(operation='fetch_listing', page=page, posting=None)
             payload = self._api.get_jobs_page(page, self.PAGE_SIZE)
             try:
                 records, page_count = self._extract_page(payload, page)
                 for record in records:
+                    update_error_context(operation='parse_posting', posting=posting_context(record))
                     published_at = datetime.fromisoformat(record['datePublished'])
                     if published_at.tzinfo is None:
                         published_at = published_at.replace(tzinfo=timezone.utc)
@@ -52,13 +55,16 @@ class NoDeskJobsSource(JobsSource[NoDeskJobsSourceConfig]):
                         continue
                     seen.add(identity)
                     url = self._listing_url(record)
+                    update_error_context(posting={**posting_context(record), **posting_context({'url': url})})
                     details = None
                     if urlsplit(url).hostname in ('nodesk.co', 'www.nodesk.co'):
+                        update_error_context(operation='fetch_posting')
                         details = self._api.get_job_posting(url)
                         if details is None:
                             continue
                     # Sponsored external vacancies retain their supplied copy and URL.
                     # is_ad never determines whether a vacancy is included.
+                    update_error_context(operation='parse_posting')
                     job = self._parse_job(record, url, details)
                     if self._matches_filters(f'{job.title}\n{job.description}'):
                         jobs.append(job)

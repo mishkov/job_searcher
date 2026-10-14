@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from bs4 import BeautifulSoup
 
+from src.error_reporting import posting_context, update_error_context
 from src.job import Job
 from src.job_sources.job_source import JobsSource, JobsSourceConfig
 from src.job_sources.we_work_remotely.api import (
@@ -34,10 +35,12 @@ class WeWorkRemotelyJobsSource(JobsSource[WeWorkRemotelyJobsSourceConfig]):
         seen = set()
         # The combined feed caps each category at ten entries; category feeds are fuller.
         for category in CATEGORIES:
+            update_error_context(operation='fetch_listing', category=category, posting=None)
             response = self._api.get_feed(category)
             if response.jobs is None:
                 raise WeWorkRemotelyFetchError('We Work Remotely returned an unexpected HTTP 304')
             for record in response.jobs:
+                update_error_context(operation='parse_posting', posting=posting_context(record))
                 if posted_at(record['pubDate']) < cutoff:
                     continue
                 if record['expires_at'] and posted_at(record['expires_at']) <= now:

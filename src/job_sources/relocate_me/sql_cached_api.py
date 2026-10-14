@@ -1,21 +1,20 @@
 import json
-import logging
 import math
 import sqlite3
 import time
 from contextlib import closing
 from pathlib import Path
 
+from src.error_reporting import ConsoleErrorReporter, ErrorReporter, posting_context, report_error
 from src.job_sources.relocate_me.api import RelocateMeApi, validate_posting
 
 
-logger = logging.getLogger(__name__)
-
-
 class SqlCachedRelocateMeApi(RelocateMeApi):
-    def __init__(self, api: RelocateMeApi, cache_path: str | Path, *, ttl_seconds: float = 24 * 60 * 60):
+    def __init__(self, api: RelocateMeApi, cache_path: str | Path, *, ttl_seconds: float = 24 * 60 * 60,
+                 reporter: ErrorReporter | None = None):
         if not math.isfinite(ttl_seconds) or ttl_seconds <= 0:
             raise ValueError('Cache TTL must be positive and finite')
+        self._reporter = reporter if reporter is not None else ConsoleErrorReporter()
         self._api = api
         self._database_path = Path(cache_path).expanduser().absolute() / 'relocate_me' / 'details-v1.sqlite3'
         self._ttl_seconds = ttl_seconds
@@ -54,8 +53,9 @@ class SqlCachedRelocateMeApi(RelocateMeApi):
             posting = json.loads(payload)
             validate_posting(posting)
             return posting
-        except (OSError, sqlite3.Error, ValueError, TypeError):
-            logger.debug('Relocate.me cache read failed; fetching from API', exc_info=True)
+        except (OSError, sqlite3.Error, ValueError, TypeError) as error:
+            report_error(self._reporter, error, source='Relocate.me', operation='cache_read',
+                         cache_path=str(self._database_path), posting=posting_context({'url': url}))
             return None
 
     def _write(self, url: str, posting: dict):
@@ -82,5 +82,6 @@ class SqlCachedRelocateMeApi(RelocateMeApi):
                 database.execute('DELETE FROM job_details WHERE cached_at <= ?',
                                  (now - self._ttl_seconds,))
                 database.commit()
-        except (OSError, sqlite3.Error, ValueError, TypeError):
-            logger.debug('Relocate.me cache write failed; using API response', exc_info=True)
+        except (OSError, sqlite3.Error, ValueError, TypeError) as error:
+            report_error(self._reporter, error, source='Relocate.me', operation='cache_write',
+                         cache_path=str(self._database_path), posting=posting_context({'url': url}))

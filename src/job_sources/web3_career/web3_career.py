@@ -8,6 +8,7 @@ from urllib.parse import urlsplit, urlunsplit
 import requests
 from bs4 import BeautifulSoup
 
+from src.error_reporting import posting_context, update_error_context
 from src.job import Job
 from src.job_sources.job_source import JobsSource, JobsSourceConfig
 from src.search_filter import SearchFilter
@@ -75,6 +76,7 @@ class Web3CareerJobsSource(JobsSource[Web3CareerJobsSourceConfig]):
         seen_fingerprints: set[str] = set()
 
         for record in records:
+            update_error_context(operation='parse_posting', posting=posting_context(record))
             if self._posted_at(record) < cutoff:
                 continue
 

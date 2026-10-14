@@ -1,5 +1,4 @@
 import json
-import logging
 import math
 import sqlite3
 import time
@@ -7,19 +6,18 @@ from contextlib import closing
 from dataclasses import asdict
 from pathlib import Path
 
+from src.error_reporting import ConsoleErrorReporter, ErrorReporter, posting_context, report_error
 from src.job_sources.we_work_remotely.api import (
     FeedResponse, WeWorkRemotelyApi, WeWorkRemotelyFetchError, validate_jobs,
 )
 
 
-logger = logging.getLogger(__name__)
-
-
 class SqlCachedWeWorkRemotelyApi(WeWorkRemotelyApi):
     def __init__(self, api: WeWorkRemotelyApi, cache_path: str | Path,
-                 *, ttl_seconds: float = 24 * 60 * 60):
+                 *, ttl_seconds: float = 24 * 60 * 60, reporter: ErrorReporter | None = None):
         if not math.isfinite(ttl_seconds) or ttl_seconds <= 0:
             raise ValueError('Cache TTL must be positive and finite')
+        self._reporter = reporter if reporter is not None else ConsoleErrorReporter()
         self._api = api
         self._database_path = Path(cache_path).expanduser().absolute() / 'we_work_remotely' / 'feeds-v1.sqlite3'
         self._ttl_seconds = ttl_seconds
@@ -71,8 +69,9 @@ class SqlCachedWeWorkRemotelyApi(WeWorkRemotelyApi):
             if not (data['etag'] or data['last_modified']):
                 return None
             return FeedResponse(jobs, data['etag'], data['last_modified'])
-        except (OSError, sqlite3.Error, ValueError, TypeError, KeyError, IndexError, OverflowError):
-            logger.debug('WWR cache read failed; fetching RSS', exc_info=True)
+        except (OSError, sqlite3.Error, ValueError, TypeError, KeyError, IndexError, OverflowError) as error:
+            report_error(self._reporter, error, source='We Work Remotely', operation='cache_read',
+                         cache_path=str(self._database_path), category=category)
             return None
 
     def _write(self, category: str, response: FeedResponse):
@@ -97,5 +96,6 @@ class SqlCachedWeWorkRemotelyApi(WeWorkRemotelyApi):
                 database.execute('DELETE FROM feeds WHERE cached_at <= ?',
                                  (now - self._ttl_seconds,))
                 database.commit()
-        except (OSError, sqlite3.Error, ValueError, TypeError, KeyError, IndexError, OverflowError):
-            logger.debug('WWR cache write failed; using RSS response', exc_info=True)
+        except (OSError, sqlite3.Error, ValueError, TypeError, KeyError, IndexError, OverflowError) as error:
+            report_error(self._reporter, error, source='We Work Remotely', operation='cache_write',
+                         cache_path=str(self._database_path), category=category)

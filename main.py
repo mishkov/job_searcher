@@ -14,6 +14,8 @@ from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.enums import ParseMode
 
+from src.error_reporting import ConsoleErrorReporter, posting_context, report_async_errors, update_error_context
+from src.job_sources.error_reporting_source import ErrorReportingJobsSource, source_error_context
 from src.job_sources.job_source import JobsSource
 from src.job_sources.telegram_channel.telegram_channel import TelegramChannelJobsSource, TelegramChannelJobsSourceConfig
 from src.search_filter import SearchFilter
@@ -50,14 +52,16 @@ import config
 
 load_dotenv()
 
+error_reporter = ConsoleErrorReporter()
+
 nodesk_api: NoDeskApi = PythonRequestsModuleNoDeskApi()
 relocate_me_api: RelocateMeApi = PythonRequestsModuleRelocateMeApi()
 wwr_api: WeWorkRemotelyApi = PythonRequestsModuleWeWorkRemotelyApi()
 cache_path = os.environ.get('CACHE_PATH')
 if cache_path and cache_path.strip():
-    nodesk_api = SqlCachedNoDeskApi(nodesk_api, cache_path)
-    relocate_me_api = SqlCachedRelocateMeApi(relocate_me_api, cache_path)
-    wwr_api = SqlCachedWeWorkRemotelyApi(wwr_api, cache_path)
+    nodesk_api = SqlCachedNoDeskApi(nodesk_api, cache_path, reporter=error_reporter)
+    relocate_me_api = SqlCachedRelocateMeApi(relocate_me_api, cache_path, reporter=error_reporter)
+    wwr_api = SqlCachedWeWorkRemotelyApi(wwr_api, cache_path, reporter=error_reporter)
 
 IS_DEBUG_MODE=os.environ["IS_DEBUG_MODE"]
 
@@ -84,31 +88,42 @@ engine = create_engine(
 )
 
 @dp.message(CommandStart())
+@report_async_errors(error_reporter, operation='start_command')
 async def start(message: Message):
     await message.answer("Welcome!", reply_markup=keyboard)
 
 @dp.message(Command("search"))
+@report_async_errors(error_reporter, operation='search')
 async def jobs(message: Message):
     status_text ='🔎 Starting jobs search...'
+    update_error_context(operation='send_search_status')
     status_message = await message.answer(status_text)
 
+    update_error_context(operation='connect_telegram')
     async with client:
         status_text = '🗃️ Starting database...'
+        update_error_context(operation='open_history')
         with Session(engine) as session:
             status_text = '⏰ Updating last search time...'
             await status_message.edit_text(status_text)
             repository = MysqlJobsSearchHistoryRespository(session)
+            update_error_context(operation='read_search_history')
             since = await repository.get_last_search_time() if not IS_DEBUG_MODE else datetime.now(timezone.utc) - timedelta(days=7)
             if not IS_DEBUG_MODE:
+                update_error_context(operation='save_search_time')
                 await repository.save_last_search_time(datetime.now())
 
             foundJobsCount = 0
 
             status_text = '🔎 Searching in sources...\n'
             for source_config in config.SOURCES:
+                source_since = since if since else datetime.now(timezone.utc) - timedelta(days=7)
+                update_error_context(**source_error_context(source_config), since=source_since.isoformat(),
+                                     operation='source_status', posting=None)
                 status_text_per_source = f'{status_text}\n🔎 {source_config.name}'
                 await status_message.edit_text(status_text_per_source)
 
+                update_error_context(operation='create_source')
                 source: JobsSource
                 if isinstance(source_config, TelegramChannelJobsSourceConfig):
                     source = TelegramChannelJobsSource(client, source_config)
@@ -127,33 +142,36 @@ async def jobs(message: Message):
                 elif isinstance(source_config, WeWorkRemotelyJobsSourceConfig):
                     source = WeWorkRemotelyJobsSource(source_config, wwr_api)
                 else:
-                    raise ValueError(f"Unknown source: {type(config)}")
+                    raise ValueError(f"Unknown source: {type(source_config)}")
 
 
+                source = ErrorReportingJobsSource(source, error_reporter)
                 try:
-                    jobs = await source.fetch(
-                        since=since if since else datetime.now(timezone.utc) - timedelta(days=7)
-                    )
+                    jobs = await source.fetch(since=source_since)
                 except (
                     Web3CareerFetchError, WelcomeToTheJungleFetchError, RemoteOkFetchError,
                     NoDeskFetchError, WeWorkRemotelyFetchError, RelocateMeFetchError,
                 ) as error:
+                    update_error_context(operation='source_status', posting=None)
                     status_text = f"{status_text}\n❌ {source_config.name} [Failed: {str(error)[:300]}]"
                     await status_message.edit_text(status_text)
                     continue
-                
+
+                update_error_context(operation='source_status', posting=None)
                 if len(jobs) == 0:
                     status_text = f"{status_text}\n✅ {source_config.name} [Found: 0]"
                     await status_message.edit_text(status_text)
-                    
+
                     continue
 
                 sourceFoundJobs = 0
                 for job in jobs:
+                    update_error_context(operation='check_seen_job', posting=posting_context(vars(job)))
 
                     if await repository.seen(job) and not IS_DEBUG_MODE:
                         continue
 
+                    update_error_context(operation='send_job')
                     keyboard = InlineKeyboardMarkup(
                         inline_keyboard=[
                             [InlineKeyboardButton(text="Open job 🔗", url=job.url)]
@@ -169,18 +187,23 @@ async def jobs(message: Message):
                     )
 
                     if not IS_DEBUG_MODE:
+                        update_error_context(operation='save_seen_job')
                         await repository.add_seen_job(job)
                     sourceFoundJobs += 1
 
+                    update_error_context(operation='source_status')
                     status_text_per_source = f"{status_text}\n⏳ {source_config.name} [Found: {sourceFoundJobs}]"
                     await status_message.edit_text(status_text_per_source)
 
+                update_error_context(operation='source_status', posting=None)
                 foundJobsCount += sourceFoundJobs
-                    
+
                 status_text = f"{status_text}\n✅ {source_config.name} [Found: {sourceFoundJobs}]"
                 await status_message.edit_text(status_text)
-                
 
+
+            update_error_context(operation='send_search_summary', source=None, source_type=None,
+                                 filters=None, posting=None)
             if foundJobsCount == 0:
                 await message.answer('No new jobs found')
             else:
@@ -193,15 +216,20 @@ def escape_markdown(text: str) -> str:
         text
     )
 
+@report_async_errors(error_reporter, operation='startup')
 async def main():
     print(f'Running in {'DEBUG' if IS_DEBUG_MODE else 'RELEASE'} mode')
     print('Initializign database...')
+    update_error_context(operation='initialize_database')
     Base.metadata.create_all(engine)
     print('Database Initialized')
 
+    update_error_context(operation='create_bot')
     bot = Bot(token=os.environ['TELEGRAM_BOT_TOKEN'])
     print('Starting telegram bot...')
+    update_error_context(operation='poll_telegram')
     await dp.start_polling(bot)
     print('Telegram bot stopped')
 
-asyncio.run(main())
+if __name__ == '__main__':
+    asyncio.run(main())
