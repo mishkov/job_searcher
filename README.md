@@ -44,3 +44,22 @@ Run the API source tests without Telegram or database access:
 ```shell
 python -m unittest discover -s tests
 ```
+
+Search history is tracked separately for each provider and filter configuration,
+including the channel and topic for Telegram sources. A checkpoint advances to
+the source's fetch start time only after fetching, delivering unseen jobs, and
+recording their delivery all succeed. Failed sources retry their previous
+interval; successful sources continue independently. Successful empty searches
+also advance their checkpoint.
+
+On startup, the bot creates the new `source_search_history` table. The old global
+`last_search_time` table is left untouched and its timestamp is not reused, since
+it may have advanced before a failed search. Each new source configuration starts
+with the existing seven-day lookback; existing `seen_jobs` records are preserved.
+Database timestamps are stored as UTC. Search history is authoritative database
+state and must remain outside `CACHE_PATH`.
+
+Overlapping `/search` commands are serialized within one bot process. Run one bot
+process against this history database. Debug mode (`IS_DEBUG_MODE=true`, `1`,
+`yes`, or `on`, case insensitive) uses the seven-day lookback and does not read or
+write search history or seen-job records. Other values disable debug mode.
