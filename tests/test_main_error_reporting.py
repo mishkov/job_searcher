@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from src.job import Job
+from src.job_sources.andersen.andersen import AndersenFetchError, AndersenJobsSourceConfig
 from src.job_sources.job_source import JobsSourceConfig
 from src.job_sources.remote_ok.remote_ok import RemoteOkFetchError, RemoteOkJobsSourceConfig
 from src.search_filter import SearchFilter
@@ -69,6 +70,31 @@ class MainReportingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(raised.exception, error)
         self.report.assert_called_once()
         self.assertEqual(self.report.call_args.kwargs['context']['operation'], 'fetch_jobs')
+
+    async def test_andersen_wiring_and_successful_search_checkpoint(self):
+        config = AndersenJobsSourceConfig(SearchFilter(['flutter']))
+        self.config.SOURCES = [config]
+        source = Mock(config=config, fetch=AsyncMock(return_value=[]))
+        factory = self.patch_object(self.main, 'AndersenJobsSource', return_value=source)
+        await self.main.jobs(self.message)
+        factory.assert_called_once_with(config)
+        source.fetch.assert_awaited_once_with(CUTOFF)
+        self.repository.save_last_search_time.assert_awaited_once()
+        self.assertEqual(self.repository.save_last_search_time.call_args.args[0], config.history_key)
+
+    async def test_andersen_failure_keeps_checkpoint_and_next_source_runs(self):
+        config = AndersenJobsSourceConfig(SearchFilter(['flutter']))
+        self.config.SOURCES.insert(0, config)
+        error = AndersenFetchError('Andersen API returned HTTP 500')
+        source = Mock(config=config, fetch=AsyncMock(side_effect=error))
+        self.patch_object(self.main, 'AndersenJobsSource', return_value=source)
+        await self.main.jobs(self.message)
+        self.report.assert_called_once()
+        self.assertIs(self.report.call_args.args[0], error)
+        self.assertEqual(self.report.call_args.kwargs['context']['source'], 'Andersen')
+        self.source.fetch.assert_awaited_once()
+        self.repository.save_last_search_time.assert_awaited_once()
+        self.assertEqual(self.repository.save_last_search_time.call_args.args[0], self.source.config.history_key)
 
     async def test_job_delivery_and_history_failures_include_posting(self):
         job = Job('Flutter Engineer', 'Private posting copy', '-', True,

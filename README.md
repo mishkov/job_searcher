@@ -39,6 +39,21 @@ Welcome to the Jungle requires no API token and is included in
 `WelcomeToTheJungleJobsSourceConfig(SearchFilter(keywords=['flutter']))` to
 `SOURCES`.
 
+Andersen's [vacancies](https://people-andersenlab.com/vacancies) require no API
+token and are included in `config.example.py`. To enable this source in an
+existing `config.py`, import `AndersenJobsSourceConfig` from
+`src.job_sources.andersen.andersen` and add
+`AndersenJobsSourceConfig(SearchFilter(keywords=['flutter']))` to `SOURCES`.
+Each search fetches the complete active list from the public v5 API, including
+descriptions, requirements, responsibilities, benefits, and hiring locations.
+Keywords and exclusions match the title and full description. The API currently
+omits publication dates, so all matching active jobs are eligible regardless of
+the search cutoff; the existing seen-job history prevents repeat notifications.
+If an opening date is supplied, the source applies the cutoff. Salary amounts
+retain the supplied currency without assuming a pay period, and remote
+availability follows the API's `isRemote` flag. Source failures are reported
+without stopping searches of other sources.
+
 Run the API source tests without Telegram or database access:
 
 ```shell
