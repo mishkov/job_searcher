@@ -18,6 +18,9 @@ from src.error_reporting import ConsoleErrorReporter, posting_context, report_as
 from src.job_sources.error_reporting_source import ErrorReportingJobsSource, source_error_context
 from src.job_sources.job_source import JobsSource
 from src.job_sources.andersen.andersen import AndersenFetchError, AndersenJobsSource, AndersenJobsSourceConfig
+from src.job_sources.smartrecruiters.smartrecruiters import (
+    SmartRecruitersFetchError, SmartRecruitersJobsSource, SmartRecruitersJobsSourceConfig,
+)
 from src.job_sources.telegram_channel.telegram_channel import TelegramChannelJobsSource, TelegramChannelJobsSourceConfig
 from src.search_filter import SearchFilter
 
@@ -139,6 +142,8 @@ async def _search_jobs(message: Message):
                     source = RemoteOkJobsSource(source_config)
                 elif isinstance(source_config, AndersenJobsSourceConfig):
                     source = AndersenJobsSource(source_config)
+                elif isinstance(source_config, SmartRecruitersJobsSourceConfig):
+                    source = SmartRecruitersJobsSource(source_config)
                 elif isinstance(source_config, NoDeskJobsSourceConfig):
                     source = NoDeskJobsSource(source_config, nodesk_api)
                 elif isinstance(source_config, RelocateMeJobsSourceConfig):
@@ -158,7 +163,7 @@ async def _search_jobs(message: Message):
                 except (
                     Web3CareerFetchError, WelcomeToTheJungleFetchError, RemoteOkFetchError,
                     NoDeskFetchError, WeWorkRemotelyFetchError, RelocateMeFetchError,
-                    AndersenFetchError,
+                    AndersenFetchError, SmartRecruitersFetchError,
                 ) as error:
                     update_error_context(operation='source_status', posting=None)
                     status_text = f"{status_text}\n❌ {source_config.name} [Failed: {str(error)[:300]}]"
