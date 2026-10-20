@@ -1,43 +1,28 @@
-# Project setup
+# Job Searcher
 
-before running the script copy `config.py` and edit as you need. See `config.example.py` for examples.
+A Python Telegram bot for checking configured job sources and sharing matching
+vacancies.
+
+## Setup
+
+Copy the example configuration and edit `config.py` to choose sources and search
+filters:
 
 ```shell
 cp config.example.py config.py
 ```
 
-The Web3.career source uses the [official free API](https://web3.career/web3-jobs-api)
-to fetch Flutter vacancies. Obtain a token there and add it to `.env`:
+To use Web3.career, obtain a token from its
+[official API page](https://web3.career/web3-jobs-api) and add it to `.env`:
 
 ```dotenv
 WEB3_CAREER_API_TOKEN=your_token
 ```
 
 Add `Web3CareerJobsSourceConfig(filters)` to `config.py`'s `SOURCES`, importing it
-from `src.job_sources.web3_career.web3_career`. The source reads the token when
-searching, respects the search date and keyword filters, and includes full job
-descriptions. It requests the latest 100 Flutter jobs; the API has no pagination,
-so older history beyond those results is unavailable. Access is rate limited.
-Salary amounts retain currency and period when supplied; estimates are labeled
-and their currency/period are not inferred when absent.
+from `src.job_sources.web3_career.web3_career`.
 
-Application buttons preserve the API's `apply_url` exactly, as required by its
-attribution terms. Keep the token private. The registration email restricts the
-token to your website; confirm with Web3.career whether your Telegram bot is
-covered by that usage scope. The source no longer needs Playwright or a browser.
-API failures are reported without stopping searches of the other sources.
-
-NoDesk requires no API token and is included in `config.example.py`. To enable it
-in an existing `config.py`, import `NoDeskJobsSourceConfig` from
-`src.job_sources.nodesk.nodesk` and add
-`NoDeskJobsSourceConfig(SearchFilter(keywords=['flutter']))` to `SOURCES`.
-
-Welcome to the Jungle requires no API token and is included in
-`config.example.py`. To enable it in an existing `config.py`, import
-`WelcomeToTheJungleJobsSourceConfig` from
-`src.job_sources.welcome_to_the_jungle.welcome_to_the_jungle` and add
-`WelcomeToTheJungleJobsSourceConfig(SearchFilter(keywords=['flutter']))` to
-`SOURCES`.
+## Tests
 
 Run the API source tests without Telegram or database access:
 

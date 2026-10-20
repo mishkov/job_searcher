@@ -1,5 +1,6 @@
 from dataclasses import replace
 
+from src.job_sources.andersen.andersen import AndersenJobsSourceConfig
 from src.job_sources.geek_job_ru.geek_job_ru import GeekJobRuJobsSourceConfig
 from src.job_sources.job_source import JobsSourceConfig
 from src.job_sources.remote_ok.remote_ok import RemoteOkJobsSourceConfig
@@ -26,6 +27,7 @@ _filters_for_groups_with_cv = replace(
     )
 
 SOURCES: list[JobsSourceConfig] = [
+    AndersenJobsSourceConfig(_common_filters),
     GeekJobRuJobsSourceConfig(_common_filters),
     RemoteOkJobsSourceConfig(_common_filters),
     NoDeskJobsSourceConfig(_common_filters),
