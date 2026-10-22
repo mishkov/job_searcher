@@ -4,8 +4,11 @@ Keep the bot process running to receive vacancies automatically. Set
 `FETCH_PERIOD_IN_MINUTES` in `config.py` to a positive number; the interval starts
 after each check finishes.
 
-The bot supports one owner and one private chat, selected by `TELEGRAM_OWNER_ID`
-in `.env`. Search history is global. Changing the owner does not reset it.
+The bot uses one shared monitor and global search history. Send `/start` in a
+private chat to select that chat for vacancy delivery; no user-ID configuration
+is required. Commands from any private chat control the same monitor. A later
+`/start` from a different private chat selects it for subsequent checks; a check
+already running finishes delivering to its original chat. Group commands are ignored.
 
 ## Commands
 
@@ -27,10 +30,11 @@ still send vacancies after the sleep boundary while it finishes. `/stop` keeps
 monitoring paused after sleeping time ends. Changing sleeping time prompts a new
 check when monitoring is enabled and awake.
 
-Monitoring and sleeping settings survive application restarts in the existing
-database. The first launch is paused until `/start`. A restart resumes the saved
+The delivery chat, monitoring, and sleeping settings survive application restarts
+in the existing database. The first launch is paused until `/start`. A restart resumes the saved
 schedule; an overdue check runs immediately when awake. A restart during a check
 retries it using saved source checkpoints and delivered-vacancy records.
+If no delivery chat has been saved yet, send `/start` once to select one.
 
 Automatic runs send new vacancies without progress messages or empty-search
 notifications. `/status` includes failed-source counts; detailed diagnostics go

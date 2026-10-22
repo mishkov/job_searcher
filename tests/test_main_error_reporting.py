@@ -380,7 +380,6 @@ class MainReportingTests(MainTestCase):
 class BotCommandTests(MainTestCase):
     def setUp(self):
         super().setUp()
-        self.main.owner_id = 12345
         self.message.from_user.id = 12345
         self.message.chat.id = 12345
         self.message.chat.type = 'private'
@@ -389,9 +388,10 @@ class BotCommandTests(MainTestCase):
         self.main.monitor = VacancyMonitor(self.store, MonitoringState(), 30,
                                           AsyncMock(return_value=SearchResult()), self.main.error_reporter)
 
-    async def test_owner_commands_and_repeated_start(self):
+    async def test_private_chat_commands_and_repeated_start(self):
         await self.main.start(self.message, self.state)
         self.assertTrue(self.main.monitor.state.enabled)
+        self.assertEqual(self.main.monitor.state.chat_id, 12345)
         due = self.main.monitor.state.next_check_at
         await self.main.start(self.message, self.state)
         self.assertEqual(self.main.monitor.state.next_check_at, due)
@@ -401,11 +401,10 @@ class BotCommandTests(MainTestCase):
         await self.main.stop(self.message, self.state)
         self.assertFalse(self.main.monitor.state.enabled)
 
-    async def test_non_owner_and_group_messages_are_ignored(self):
-        for user, chat, kind in [(999, 999, 'private'), (12345, -1, 'group'),
-                                  (999, 12345, 'private')]:
-            with self.subTest(user=user, chat=chat):
-                self.message.from_user.id, self.message.chat.id = user, chat
+    async def test_group_messages_are_ignored(self):
+        self.message.chat.id = -100123
+        for kind in ('group', 'supergroup', 'channel'):
+            with self.subTest(kind=kind):
                 self.message.chat.type = kind
                 for handler in (self.main.start, self.main.stop, self.main.status,
                                 self.main.set_sleep_time, self.main.save_sleep_time, self.main.cancel):
@@ -413,6 +412,18 @@ class BotCommandTests(MainTestCase):
                 self.message.answer.assert_not_awaited()
                 self.store.save.assert_not_awaited()
                 self.state.clear.assert_not_awaited()
+
+    async def test_another_private_chat_can_control_monitor_and_select_delivery(self):
+        await self.main.start(self.message, self.state)
+        self.assertEqual(self.main.monitor.state.chat_id, 12345)
+        self.message.from_user.id = self.message.chat.id = 999
+        await self.main.start(self.message, self.state)
+        self.assertEqual(self.main.monitor.state.chat_id, 999)
+        self.assertTrue(self.main.monitor.state.enabled)
+        await self.main.status(self.message, self.state)
+        self.assertIn('Europe/Minsk', self.message.answer.call_args.args[0])
+        await self.main.stop(self.message, self.state)
+        self.assertFalse(self.main.monitor.state.enabled)
 
     async def test_sleep_setup_validation_retry_and_off(self):
         await self.main.set_sleep_time(self.message, self.state)
@@ -476,10 +487,10 @@ class BotCommandTests(MainTestCase):
 
     async def test_startup_restores_monitor_registers_commands_and_drains_worker(self):
         self.config.FETCH_PERIOD_IN_MINUTES = 30
-        saved = MonitoringState(enabled=True, sleep=SleepPeriod.parse('23:00-08:00'))
+        saved = MonitoringState(enabled=True, chat_id=12345, sleep=SleepPeriod.parse('23:00-08:00'))
         store = Mock(spec=MysqlMonitoringStore, load=AsyncMock(return_value=saved))
         self.patch_object(self.main, 'MysqlMonitoringStore', return_value=store)
-        monitor = Mock(run=AsyncMock())
+        monitor = Mock(run=AsyncMock(), state=saved)
         factory = self.patch_object(self.main, 'VacancyMonitor', return_value=monitor)
         self.patch_object(self.main.Base.metadata, 'create_all')
         self.patch_object(self.main.engine, 'dispose')
@@ -489,7 +500,8 @@ class BotCommandTests(MainTestCase):
         context.__aenter__.return_value = bot
         self.patch_object(self.main, 'Bot', return_value=context)
         self.patch_object(self.main.dp, 'start_polling', new=AsyncMock())
-        with patch.dict(os.environ, {'TELEGRAM_OWNER_ID': '12345', 'TELEGRAM_BOT_TOKEN': 'unused'}):
+        with patch.dict(os.environ, {'TELEGRAM_BOT_TOKEN': 'unused'}):
+            os.environ.pop('TELEGRAM_OWNER_ID', None)
             await self.main.main()
         self.assertIs(factory.call_args.args[1], saved)
         commands = [item.command for item in bot.set_my_commands.call_args.args[0]]
@@ -498,10 +510,9 @@ class BotCommandTests(MainTestCase):
         monitor.close.assert_called_once()
         self.main.dp.start_polling.assert_awaited_once_with(bot, close_bot_session=False)
         self.main.client.disconnect.assert_awaited_once()
-
-    async def test_startup_rejects_invalid_owner(self):
-        self.patch_object(self.main.Base.metadata, 'create_all')
-        for value in ('0', '-100', 'not-a-number'):
-            with self.subTest(value=value), patch.dict(os.environ, {'TELEGRAM_OWNER_ID': value}):
-                with self.assertRaises(ValueError):
-                    await self.main.main()
+        async def send_job(send, should_continue, on_source):
+            monitor.state = MonitoringState(enabled=True, chat_id=999)
+            await send('A vacancy')
+        self.patch_object(self.main, 'search_jobs', new=AsyncMock(side_effect=send_job))
+        await factory.call_args.args[3](lambda: True, lambda name: None)
+        bot.send_message.assert_awaited_once_with(12345, 'A vacancy')

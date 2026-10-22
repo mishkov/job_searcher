@@ -60,6 +60,7 @@ class SleepPeriod:
 @dataclass(frozen=True)
 class MonitoringState:
     enabled: bool = False
+    chat_id: int | None = None
     sleep: SleepPeriod | None = None
     next_check_at: datetime | None = None
     last_started_at: datetime | None = None
@@ -109,11 +110,11 @@ class VacancyMonitor:
             await self.store.save(state)
             self.state = state
 
-    async def start(self) -> bool:
+    async def start(self, chat_id: int) -> bool:
         async with self._lock:
-            if self.state.enabled:
+            if self.state.enabled and self.state.chat_id == chat_id:
                 return False
-            state = replace(self.state, enabled=True, next_check_at=self.now())
+            state = replace(self.state, enabled=True, chat_id=chat_id, next_check_at=self.now())
             await self.store.save(state)
             self.state = state
         self._wake.set()
@@ -128,18 +129,20 @@ class VacancyMonitor:
         self._wake.set()
 
     def can_search(self) -> bool:
-        return (not self._closing and self.state.enabled
+        return (not self._closing and self.state.enabled and self.state.chat_id is not None
                 and not (self.state.sleep and self.state.sleep.sleeping_until(self.now())))
 
     def next_check(self) -> datetime | None:
-        if not self.state.enabled:
+        if not self.state.enabled or self.state.chat_id is None:
             return None
         now = self.now()
         due = max(now, self.state.next_check_at or now)
         return self.state.sleep.next_check(now, due) if self.state.sleep else due
 
     def status(self) -> str:
-        if not self.state.enabled:
+        if self.state.chat_id is None:
+            mode = 'Send /start in a private chat to select where vacancies are delivered'
+        elif not self.state.enabled:
             mode = 'Paused by you'
         elif self.state.sleep and (end := self.state.sleep.sleeping_until(self.now())):
             mode = f'Sleeping until {self._time(end)}'

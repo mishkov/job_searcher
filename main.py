@@ -97,7 +97,6 @@ engine = create_engine(
     os.environ['DATABASE_URL']
 )
 
-owner_id: int | None = None
 monitor: VacancyMonitor | None = None
 
 
@@ -105,19 +104,17 @@ class SleepSettings(StatesGroup):
     waiting_for_period = State()
 
 
-def is_owner(message: Message) -> bool:
-    return (owner_id is not None and message.from_user is not None
-            and message.from_user.id == owner_id and message.chat.id == owner_id
-            and message.chat.type == 'private')
+def is_private_chat(message: Message) -> bool:
+    return message.chat.type == 'private'
 
 
 @dp.message(CommandStart())
 @report_async_errors(error_reporter, operation='start_command')
 async def start(message: Message, state: FSMContext):
-    if not is_owner(message):
+    if not is_private_chat(message):
         return
     await state.clear()
-    enabled = await monitor.start()
+    enabled = await monitor.start(message.chat.id)
     text = 'Automatic checks enabled.' if enabled else 'Automatic checks are already enabled.'
     await message.answer(f'{text}\n{monitor.status()}', reply_markup=keyboard)
 
@@ -125,7 +122,7 @@ async def start(message: Message, state: FSMContext):
 @dp.message(Command('stop'))
 @report_async_errors(error_reporter, operation='stop_command')
 async def stop(message: Message, state: FSMContext):
-    if not is_owner(message):
+    if not is_private_chat(message):
         return
     await state.clear()
     await monitor.stop()
@@ -138,7 +135,7 @@ async def stop(message: Message, state: FSMContext):
 @dp.message(Command('status'))
 @report_async_errors(error_reporter, operation='status_command')
 async def status(message: Message, state: FSMContext):
-    if not is_owner(message):
+    if not is_private_chat(message):
         return
     await state.clear()
     await message.answer(monitor.status(), reply_markup=keyboard)
@@ -147,7 +144,7 @@ async def status(message: Message, state: FSMContext):
 @dp.message(Command('setsleeptime'))
 @report_async_errors(error_reporter, operation='set_sleep_command')
 async def set_sleep_time(message: Message, state: FSMContext):
-    if not is_owner(message):
+    if not is_private_chat(message):
         return
     await message.answer(
         'Send your daily sleep period in 24-hour format: 23:00-08:00.\n'
@@ -162,7 +159,7 @@ async def set_sleep_time(message: Message, state: FSMContext):
 @dp.message(Command('cancel'))
 @report_async_errors(error_reporter, operation='cancel_command')
 async def cancel(message: Message, state: FSMContext):
-    if not is_owner(message):
+    if not is_private_chat(message):
         return
     await state.clear()
     await message.answer('Sleeping time unchanged.', reply_markup=keyboard)
@@ -171,7 +168,7 @@ async def cancel(message: Message, state: FSMContext):
 @dp.message(SleepSettings.waiting_for_period, F.text, ~F.text.startswith('/'))
 @report_async_errors(error_reporter, operation='save_sleep_time')
 async def save_sleep_time(message: Message, state: FSMContext):
-    if not is_owner(message):
+    if not is_private_chat(message):
         return
     value = message.text.strip()
     try:
@@ -286,22 +283,21 @@ def escape_markdown(text: str) -> str:
 
 @report_async_errors(error_reporter, operation='startup')
 async def main():
-    global monitor, owner_id
+    global monitor
     print(f'Running in {"DEBUG" if IS_DEBUG_MODE else "RELEASE"} mode')
     update_error_context(operation='initialize_database')
     await asyncio.to_thread(Base.metadata.create_all, engine)
 
     update_error_context(operation='configure_monitoring')
-    owner_id = int(os.environ['TELEGRAM_OWNER_ID'])
-    if owner_id <= 0:
-        raise ValueError('TELEGRAM_OWNER_ID must be a positive Telegram user ID')
     store = MysqlMonitoringStore(engine)
     saved_state = await store.load()
     update_error_context(operation='create_bot')
     async with Bot(token=os.environ['TELEGRAM_BOT_TOKEN']) as bot:
         async def search(should_continue, on_source):
+            # Keep a running check's destination stable if another chat sends /start.
+            chat_id = monitor.state.chat_id
             async def send(text, **kwargs):
-                await bot.send_message(owner_id, text, **kwargs)
+                await bot.send_message(chat_id, text, **kwargs)
             return await search_jobs(send, should_continue, on_source)
 
         monitor = VacancyMonitor(store, saved_state, float(config.FETCH_PERIOD_IN_MINUTES),

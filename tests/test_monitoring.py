@@ -7,12 +7,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
 from src.job import Job
 from src.monitoring import LOCAL_TIMEZONE, MonitoringState, SearchResult, SleepPeriod, VacancyMonitor
 from src.storage.mysql.base import Base
-from src.storage.mysql.monitoring_store import MysqlMonitoringStore
+from src.storage.mysql.monitoring_store import MonitoringModel, MysqlMonitoringStore
 from src.storage.mysql.threaded_history_repository import ThreadedHistoryRepository
 
 
@@ -79,23 +79,35 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_start_is_idempotent_and_stop_survives_restart(self):
         self.assertIsNone(self.monitor.next_check())
-        self.assertTrue(await self.monitor.start())
+        self.assertTrue(await self.monitor.start(12345))
         self.assertEqual(self.monitor.next_check(), self.now)
         await self.monitor.check_once()
         self.assertEqual(self.monitor.next_check(), self.now + timedelta(minutes=30))
-        self.assertFalse(await self.monitor.start())
+        self.assertFalse(await self.monitor.start(12345))
         self.assertEqual(self.monitor.next_check(), self.now + timedelta(minutes=30))
         await self.monitor.stop()
         restarted = VacancyMonitor(self.store, await self.store.load(), 30, self.search, self.reporter)
         self.assertFalse(restarted.can_search())
         self.assertIsNone(restarted.next_check())
+        self.assertEqual(restarted.state.chat_id, 12345)
+
+    async def test_saved_enabled_state_waits_for_start_if_delivery_chat_is_unknown(self):
+        self.monitor.state = MonitoringState(enabled=True)
+        self.assertFalse(self.monitor.can_search())
+        self.assertIsNone(self.monitor.next_check())
+        self.assertIn('Send /start', self.monitor.status())
+        await self.monitor.check_once()
+        self.search.assert_not_awaited()
+        self.assertTrue(await self.monitor.start(12345))
+        self.assertEqual(self.monitor.state.chat_id, 12345)
+        self.assertTrue(self.monitor.can_search())
 
     async def test_interval_starts_after_completion(self):
         async def search(*args):
             self.now += timedelta(minutes=12)
             return SearchResult(delivered=2, failed_sources=1)
         self.search.side_effect = search
-        await self.monitor.start()
+        await self.monitor.start(12345)
         await self.monitor.check_once()
         self.assertEqual(self.monitor.state.last_started_at, local('2026-10-22T12:00'))
         self.assertEqual(self.monitor.state.last_completed_at, local('2026-10-22T12:12'))
@@ -104,7 +116,7 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_failed_cycle_is_reported_once_and_retried(self):
         self.search.side_effect = [RuntimeError('private error details'), SearchResult()]
-        await self.monitor.start()
+        await self.monitor.start(12345)
         await self.monitor.check_once()
         self.assertIn('RuntimeError', self.monitor.status())
         self.assertNotIn('private error details', self.monitor.status())
@@ -117,7 +129,7 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
     async def test_sleep_start_wake_and_stop(self):
         await self.monitor.set_sleep(SleepPeriod.parse('23:00-08:00'))
         self.now = local('2026-10-22T23:00')
-        await self.monitor.start()
+        await self.monitor.start(12345)
         await self.monitor.check_once()
         self.search.assert_not_awaited()
         self.assertEqual(self.monitor.next_check(), local('2026-10-23T08:00'))
@@ -133,7 +145,7 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
         self.now = local('2026-10-22T22:50')
         self.monitor.interval = timedelta(hours=12)
         await self.monitor.set_sleep(SleepPeriod.parse('23:00-08:00'))
-        await self.monitor.start()
+        await self.monitor.start(12345)
         await self.monitor.check_once()
         self.assertEqual(self.store.state.next_check_at, local('2026-10-23T08:00'))
         self.now = local('2026-10-23T08:00')
@@ -151,7 +163,7 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
             await self.monitor.set_sleep(SleepPeriod.parse('23:00-08:00'))
             return SearchResult(delivered=1, interrupted=True)
         self.search.side_effect = search
-        await self.monitor.start()
+        await self.monitor.start(12345)
         await self.monitor.check_once()
         self.assertFalse(self.store.state.enabled)
         self.assertEqual(str(self.store.state.sleep), '23:00-08:00')
@@ -160,7 +172,7 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
     async def test_failed_settings_save_leaves_live_state_unchanged(self):
         with patch.object(self.store, 'save', new=AsyncMock(side_effect=RuntimeError('offline'))):
             with self.assertRaises(RuntimeError):
-                await self.monitor.start()
+                await self.monitor.start(12345)
             self.assertFalse(self.monitor.state.enabled)
             with self.assertRaises(RuntimeError):
                 await self.monitor.set_sleep(SleepPeriod.parse('23:00-08:00'))
@@ -177,13 +189,13 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
         self.now = local('2026-10-23T07:59')
         worker = asyncio.create_task(self.monitor.run())
         try:
-            await self.monitor.start()
+            await self.monitor.start(12345)
             await asyncio.sleep(0)
             self.search.assert_not_awaited()
             self.now = local('2026-10-23T08:00')
             self.monitor._wake.set()
             await asyncio.wait_for(started.wait(), 1)
-            self.assertFalse(await self.monitor.start())
+            self.assertFalse(await self.monitor.start(12345))
             self.search.assert_awaited_once()
             self.monitor.close()
             self.assertFalse(worker.done())
@@ -208,7 +220,7 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
         self.monitor.now = lambda: datetime.now(timezone.utc)
         self.monitor.interval = timedelta(milliseconds=5)
         self.monitor.search = search
-        await self.monitor.start()
+        await self.monitor.start(12345)
         worker = asyncio.create_task(self.monitor.run())
         try:
             await asyncio.wait_for(repeated.wait(), 1)
@@ -226,7 +238,7 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
             completed.set()
             return SearchResult()
         self.monitor.search = search
-        await self.monitor.start()
+        await self.monitor.start(12345)
         save = self.store.save
         calls = 0
         async def intermittent_save(state):
@@ -263,7 +275,7 @@ class DatabaseMonitoringTests(unittest.IsolatedAsyncioTestCase):
     async def test_settings_and_results_survive_new_store_and_can_be_cleared(self):
         store = MysqlMonitoringStore(self.engine)
         self.assertEqual(await store.load(), MonitoringState())
-        state = MonitoringState(enabled=True, sleep=SleepPeriod.parse('23:00-08:00'),
+        state = MonitoringState(enabled=True, chat_id=12345, sleep=SleepPeriod.parse('23:00-08:00'),
                                 next_check_at=local('2026-10-23T08:00'),
                                 last_started_at=local('2026-10-22T22:00'),
                                 last_completed_at=local('2026-10-22T22:05'),
@@ -286,6 +298,32 @@ class DatabaseMonitoringTests(unittest.IsolatedAsyncioTestCase):
         await first.save_last_search_time('source', started)
         self.assertEqual(await second.get_last_search_time('source'), started)
         self.assertIsNone(await first.get_last_search_time('other'))
+
+    async def test_earlier_settings_schema_is_upgraded_without_losing_history(self):
+        MonitoringModel.__table__.drop(self.engine)
+        with self.engine.begin() as connection:
+            connection.execute(text('''CREATE TABLE monitoring_settings (
+                id INTEGER PRIMARY KEY, enabled BOOLEAN NOT NULL,
+                sleep_start INTEGER, sleep_end INTEGER, next_check_at DATETIME,
+                last_started_at DATETIME, last_completed_at DATETIME,
+                last_result VARCHAR(500) NOT NULL
+            )'''))
+            connection.execute(text('''INSERT INTO monitoring_settings
+                (id, enabled, sleep_start, sleep_end, last_result)
+                VALUES (1, 1, 1380, 480, 'Previous check')'''))
+        history = ThreadedHistoryRepository(self.engine)
+        started = local('2026-10-22T22:00')
+        await history.save_last_search_time('source', started)
+        store = MysqlMonitoringStore(self.engine)
+        state = await store.load()
+        self.assertTrue(state.enabled)
+        self.assertIsNone(state.chat_id)
+        self.assertEqual(str(state.sleep), '23:00-08:00')
+        self.assertEqual(state.last_result, 'Previous check')
+        self.assertEqual(await history.get_last_search_time('source'), started)
+        updated = replace(state, chat_id=2**40)
+        await store.save(updated)
+        self.assertEqual(await MysqlMonitoringStore(self.engine).load(), updated)
 
     async def test_slow_database_does_not_block_event_loop(self):
         entered, release = threading.Event(), threading.Event()
