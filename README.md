@@ -12,6 +12,10 @@ filters:
 cp config.example.py config.py
 ```
 
+Set `TELEGRAM_OWNER_ID` in `.env` to your numeric Telegram user ID. The bot accepts
+commands only from this user's private chat. Send `/start` to enable automatic
+checks. See [bot usage](docs/BOT_USAGE.md) for commands and sleeping time.
+
 To use Web3.career, obtain a token from its
 [official API page](https://web3.career/web3-jobs-api) and add it to `.env`:
 
