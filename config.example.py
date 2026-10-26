@@ -6,6 +6,7 @@ from src.job_sources.smartrecruiters.smartrecruiters import SmartRecruitersJobsS
 from src.job_sources.geek_job_ru.geek_job_ru import GeekJobRuJobsSourceConfig
 from src.job_sources.job_source import JobsSourceConfig
 from src.job_sources.remote_ok.remote_ok import RemoteOkJobsSourceConfig
+from src.job_sources.rippling.rippling import RipplingJobsSourceConfig
 from src.job_sources.nodesk.nodesk import NoDeskJobsSourceConfig
 from src.job_sources.relocate_me.relocate_me import RelocateMeJobsSourceConfig
 from src.job_sources.telegram_channel.telegram_channel import TelegramChannelJobsSourceConfig
@@ -32,6 +33,7 @@ SOURCES: list[JobsSourceConfig] = [
     AndersenJobsSourceConfig(_common_filters),
     BrightstarLotteryJobsSourceConfig(_common_filters),
     SmartRecruitersJobsSourceConfig(_common_filters),
+    RipplingJobsSourceConfig('sparq', _common_filters),
     GeekJobRuJobsSourceConfig(_common_filters),
     RemoteOkJobsSourceConfig(_common_filters),
     NoDeskJobsSourceConfig(_common_filters),
