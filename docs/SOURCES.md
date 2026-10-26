@@ -1,5 +1,14 @@
 # Source coverage
 
+## Ashby
+
+`AshbyJobsSourceConfig(company_slug, filters)` accepts the board slug from the
+job URL: `gismart` for `https://jobs.ashbyhq.com/gismart/...`. Use a separate
+entry for each company; each board and filter combination has independent search
+history. Date filtering uses the last publication date. Unlisted jobs are excluded.
+Hybrid roles allow remote work but retain their workplace type and locations in
+the description.
+
 ## Comeet
 
 `ComeetJobsSourceConfig(company_slug, company_uid, filters)` requires both company
