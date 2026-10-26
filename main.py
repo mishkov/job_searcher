@@ -20,6 +20,7 @@ from src.job_sources.error_reporting_source import ErrorReportingJobsSource, sou
 from src.job_sources.job_source import JobsSource
 from src.job_sources.aj_bell.aj_bell import AjBellFetchError, AjBellJobsSource, AjBellJobsSourceConfig
 from src.job_sources.andersen.andersen import AndersenFetchError, AndersenJobsSource, AndersenJobsSourceConfig
+from src.job_sources.hackmotion.hackmotion import HackMotionFetchError, HackMotionJobsSource, HackMotionJobsSourceConfig
 from src.job_sources.brightstar_lottery.brightstar_lottery import (
     BrightstarLotteryFetchError, BrightstarLotteryJobsSource, BrightstarLotteryJobsSourceConfig,
 )
@@ -236,6 +237,8 @@ async def _search_jobs(send_message, should_continue, on_source) -> SearchResult
                 source = AndersenJobsSource(source_config)
             elif isinstance(source_config, AjBellJobsSourceConfig):
                 source = AjBellJobsSource(source_config)
+            elif isinstance(source_config, HackMotionJobsSourceConfig):
+                source = HackMotionJobsSource(source_config)
             elif isinstance(source_config, BrightstarLotteryJobsSourceConfig):
                 source = BrightstarLotteryJobsSource(source_config)
             elif isinstance(source_config, SmartRecruitersJobsSourceConfig):
@@ -262,6 +265,7 @@ async def _search_jobs(send_message, should_continue, on_source) -> SearchResult
                 NoDeskFetchError, WeWorkRemotelyFetchError, RelocateMeFetchError,
                 AndersenFetchError, SmartRecruitersFetchError, AjBellFetchError,
                 BrightstarLotteryFetchError, RipplingFetchError,
+                HackMotionFetchError,
             ):
                 result.failed_sources += 1
                 continue
