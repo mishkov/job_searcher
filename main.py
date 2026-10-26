@@ -19,6 +19,9 @@ from src.error_reporting import ConsoleErrorReporter, posting_context, report_as
 from src.job_sources.error_reporting_source import ErrorReportingJobsSource, source_error_context
 from src.job_sources.job_source import JobsSource
 from src.job_sources.andersen.andersen import AndersenFetchError, AndersenJobsSource, AndersenJobsSourceConfig
+from src.job_sources.brightstar_lottery.brightstar_lottery import (
+    BrightstarLotteryFetchError, BrightstarLotteryJobsSource, BrightstarLotteryJobsSourceConfig,
+)
 from src.job_sources.smartrecruiters.smartrecruiters import (
     SmartRecruitersFetchError, SmartRecruitersJobsSource, SmartRecruitersJobsSourceConfig,
 )
@@ -219,6 +222,8 @@ async def _search_jobs(send_message, should_continue, on_source) -> SearchResult
                 source = RemoteOkJobsSource(source_config)
             elif isinstance(source_config, AndersenJobsSourceConfig):
                 source = AndersenJobsSource(source_config)
+            elif isinstance(source_config, BrightstarLotteryJobsSourceConfig):
+                source = BrightstarLotteryJobsSource(source_config)
             elif isinstance(source_config, SmartRecruitersJobsSourceConfig):
                 source = SmartRecruitersJobsSource(source_config)
             elif isinstance(source_config, NoDeskJobsSourceConfig):
@@ -240,6 +245,7 @@ async def _search_jobs(send_message, should_continue, on_source) -> SearchResult
                 Web3CareerFetchError, WelcomeToTheJungleFetchError, RemoteOkFetchError,
                 NoDeskFetchError, WeWorkRemotelyFetchError, RelocateMeFetchError,
                 AndersenFetchError, SmartRecruitersFetchError,
+                BrightstarLotteryFetchError,
             ):
                 result.failed_sources += 1
                 continue

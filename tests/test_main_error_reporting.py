@@ -12,6 +12,9 @@ from aiogram import Bot
 
 from src.job import Job
 from src.job_sources.andersen.andersen import AndersenFetchError, AndersenJobsSourceConfig
+from src.job_sources.brightstar_lottery.brightstar_lottery import (
+    BrightstarLotteryFetchError, BrightstarLotteryJobsSourceConfig,
+)
 from src.job_sources.smartrecruiters.smartrecruiters import SmartRecruitersFetchError, SmartRecruitersJobsSourceConfig
 from src.job_sources.job_source import JobsSourceConfig
 from src.job_sources.remote_ok.remote_ok import RemoteOkFetchError, RemoteOkJobsSourceConfig
@@ -123,6 +126,34 @@ class MainReportingTests(MainTestCase):
         source.fetch.assert_awaited_once_with(CUTOFF)
         self.repository.save_last_search_time.assert_awaited_once()
         self.assertEqual(self.repository.save_last_search_time.call_args.args[0], config.history_key)
+
+    async def test_brightstar_lottery_wiring_and_successful_checkpoint(self):
+        config = BrightstarLotteryJobsSourceConfig(SearchFilter(['flutter']))
+        self.config.SOURCES = [config]
+        source = Mock(config=config, fetch=AsyncMock(return_value=[]))
+        factory = self.patch_object(self.main, 'BrightstarLotteryJobsSource', return_value=source)
+        result = await self.main.search_jobs(self.message.answer)
+        factory.assert_called_once_with(config)
+        source.fetch.assert_awaited_once_with(CUTOFF)
+        self.repository.save_last_search_time.assert_awaited_once()
+        self.assertEqual(self.repository.save_last_search_time.call_args.args[0], config.history_key)
+        self.assertEqual(result.failed_sources, 0)
+
+    async def test_brightstar_lottery_failure_keeps_checkpoint_and_continues(self):
+        config = BrightstarLotteryJobsSourceConfig(SearchFilter(['flutter']))
+        self.config.SOURCES.insert(0, config)
+        error = BrightstarLotteryFetchError('Brightstar Lottery returned HTTP 500')
+        source = Mock(config=config, fetch=AsyncMock(side_effect=error))
+        self.patch_object(self.main, 'BrightstarLotteryJobsSource', return_value=source)
+        result = await self.main.search_jobs(self.message.answer)
+        self.report.assert_called_once()
+        self.assertIs(self.report.call_args.args[0], error)
+        self.assertEqual(self.report.call_args.kwargs['context']['source'], 'Brightstar Lottery')
+        self.source.fetch.assert_awaited_once()
+        self.repository.save_last_search_time.assert_awaited_once()
+        self.assertEqual(self.repository.save_last_search_time.call_args.args[0], self.source.config.history_key)
+        self.assertEqual(result.failed_sources, 1)
+        self.message.answer.assert_not_awaited()
 
     async def test_smartrecruiters_failure_keeps_checkpoint_and_continues(self):
         config = SmartRecruitersJobsSourceConfig(SearchFilter(['flutter']))
