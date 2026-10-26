@@ -18,6 +18,7 @@ from aiogram.enums import ParseMode
 from src.error_reporting import ConsoleErrorReporter, posting_context, report_async_errors, update_error_context
 from src.job_sources.error_reporting_source import ErrorReportingJobsSource, source_error_context
 from src.job_sources.job_source import JobsSource
+from src.job_sources.aj_bell.aj_bell import AjBellFetchError, AjBellJobsSource, AjBellJobsSourceConfig
 from src.job_sources.andersen.andersen import AndersenFetchError, AndersenJobsSource, AndersenJobsSourceConfig
 from src.job_sources.brightstar_lottery.brightstar_lottery import (
     BrightstarLotteryFetchError, BrightstarLotteryJobsSource, BrightstarLotteryJobsSourceConfig,
@@ -233,6 +234,8 @@ async def _search_jobs(send_message, should_continue, on_source) -> SearchResult
                 source = RemoteOkJobsSource(source_config)
             elif isinstance(source_config, AndersenJobsSourceConfig):
                 source = AndersenJobsSource(source_config)
+            elif isinstance(source_config, AjBellJobsSourceConfig):
+                source = AjBellJobsSource(source_config)
             elif isinstance(source_config, BrightstarLotteryJobsSourceConfig):
                 source = BrightstarLotteryJobsSource(source_config)
             elif isinstance(source_config, SmartRecruitersJobsSourceConfig):
@@ -257,7 +260,7 @@ async def _search_jobs(send_message, should_continue, on_source) -> SearchResult
             except (
                 Web3CareerFetchError, WelcomeToTheJungleFetchError, RemoteOkFetchError,
                 NoDeskFetchError, WeWorkRemotelyFetchError, RelocateMeFetchError,
-                AndersenFetchError, SmartRecruitersFetchError,
+                AndersenFetchError, SmartRecruitersFetchError, AjBellFetchError,
                 BrightstarLotteryFetchError, RipplingFetchError,
             ):
                 result.failed_sources += 1

@@ -1,5 +1,12 @@
 # Source coverage
 
+## AJ Bell techHub
+
+Checks the [tech vacancies](https://www.ajbell.co.uk/group/techhub/vacancies).
+These vacancies have no publication dates, so the first check includes all
+currently advertised matches regardless of the usual seven-day lookback.
+Saved job history prevents repeat deliveries on later checks.
+
 ## Telegram
 
 For channels that append promotional text, set `ignored_text_fragments` on
