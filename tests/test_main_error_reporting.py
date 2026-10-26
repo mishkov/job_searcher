@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from aiogram import Bot
 
 from src.job import Job
+from src.job_sources.aj_bell.aj_bell import AjBellFetchError, AjBellJobsSourceConfig
 from src.job_sources.andersen.andersen import AndersenFetchError, AndersenJobsSourceConfig
 from src.job_sources.brightstar_lottery.brightstar_lottery import (
     BrightstarLotteryFetchError, BrightstarLotteryJobsSourceConfig,
@@ -59,6 +60,32 @@ class MainTestCase(unittest.IsolatedAsyncioTestCase):
 
 
 class MainReportingTests(MainTestCase):
+    async def test_aj_bell_wiring_and_successful_checkpoint(self):
+        config = AjBellJobsSourceConfig(SearchFilter(['flutter']))
+        self.config.SOURCES = [config]
+        source = Mock(config=config, fetch=AsyncMock(return_value=[]))
+        factory = self.patch_object(self.main, 'AjBellJobsSource', return_value=source)
+        await self.main.search_jobs(self.message.answer)
+        factory.assert_called_once_with(config)
+        source.fetch.assert_awaited_once_with(CUTOFF)
+        self.repository.save_last_search_time.assert_awaited_once()
+        self.assertEqual(self.repository.save_last_search_time.call_args.args[0], config.history_key)
+
+    async def test_aj_bell_failure_keeps_checkpoint_and_next_source_runs(self):
+        config = AjBellJobsSourceConfig(SearchFilter(['flutter']))
+        self.config.SOURCES.insert(0, config)
+        error = AjBellFetchError('AJ Bell returned HTTP 500')
+        source = Mock(config=config, fetch=AsyncMock(side_effect=error))
+        self.patch_object(self.main, 'AjBellJobsSource', return_value=source)
+        result = await self.main.search_jobs(self.message.answer)
+        self.assertEqual(result.failed_sources, 1)
+        self.report.assert_called_once()
+        self.assertIs(self.report.call_args.args[0], error)
+        self.assertEqual(self.report.call_args.kwargs['context']['source'], 'AJ Bell techHub')
+        self.source.fetch.assert_awaited_once()
+        self.repository.save_last_search_time.assert_awaited_once()
+        self.assertEqual(self.repository.save_last_search_time.call_args.args[0], self.source.config.history_key)
+
     async def test_delivered_job_has_link_and_applied_buttons(self):
         self.source.fetch.return_value = [Job('Title', 'Description', '-', None, 'https://example.com/1', 'one')]
         await self.main.search_jobs(self.message.answer)

@@ -1,5 +1,6 @@
 from dataclasses import replace
 
+from src.job_sources.aj_bell.aj_bell import AjBellJobsSourceConfig
 from src.job_sources.andersen.andersen import AndersenJobsSourceConfig
 from src.job_sources.brightstar_lottery.brightstar_lottery import BrightstarLotteryJobsSourceConfig
 from src.job_sources.smartrecruiters.smartrecruiters import SmartRecruitersJobsSourceConfig
@@ -30,6 +31,7 @@ _filters_for_groups_with_cv = replace(
     )
 
 SOURCES: list[JobsSourceConfig] = [
+    AjBellJobsSourceConfig(_common_filters),
     AndersenJobsSourceConfig(_common_filters),
     BrightstarLotteryJobsSourceConfig(_common_filters),
     SmartRecruitersJobsSourceConfig(_common_filters),
