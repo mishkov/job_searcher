@@ -44,3 +44,12 @@ Sleeping and paused periods do not advance source checkpoints. Sources without
 history use a seven-day lookback, subject to [source coverage](SOURCES.md).
 Keep `IS_DEBUG_MODE` disabled for normal use: debug mode ignores history and can
 send the same vacancies again on every check.
+
+## Job posts
+
+Click **✅ Applied** on a vacancy to save its displayed post and replace it with
+`✅ Applied [TITLE]`. **Open job 🔗** remains available. Click **Restore post** to
+bring back the original message, formatting, and buttons. Saved posts survive
+bot restarts in the database; restoration includes the description excerpt that
+was displayed, not the full description on the job website. Restoring a post
+does not cause the monitor to deliver that vacancy again.
