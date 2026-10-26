@@ -11,7 +11,7 @@ from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
-    BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message, ReplyKeyboardMarkup,
+    BotCommand, CallbackQuery, KeyboardButton, Message, ReplyKeyboardMarkup,
 )
 from aiogram.enums import ParseMode
 
@@ -54,6 +54,8 @@ from src.job_sources.we_work_remotely.we_work_remotely import (
 from src.storage.mysql.base import Base
 from src.storage.mysql.threaded_history_repository import ThreadedHistoryRepository
 from src.storage.mysql.monitoring_store import MysqlMonitoringStore
+from src.storage.mysql.job_post_repository import MysqlJobPostRepository
+from src.job_post_actions import ARCHIVE_POST, RESTORE_POST, JobPostActions, job_post_keyboard
 from src.monitoring import SearchResult, SleepPeriod, VacancyMonitor
 
 import config
@@ -100,6 +102,8 @@ engine = create_engine(
     os.environ['DATABASE_URL']
 )
 
+job_post_actions = JobPostActions(MysqlJobPostRepository(engine), error_reporter)
+
 monitor: VacancyMonitor | None = None
 
 
@@ -109,6 +113,12 @@ class SleepSettings(StatesGroup):
 
 def is_private_chat(message: Message) -> bool:
     return message.chat.type == 'private'
+
+
+@dp.callback_query(F.data.in_({ARCHIVE_POST, RESTORE_POST}))
+@report_async_errors(error_reporter, operation='job_post_callback')
+async def job_post_callback(query: CallbackQuery):
+    await job_post_actions.handle(query)
 
 
 @dp.message(CommandStart())
@@ -255,11 +265,7 @@ async def _search_jobs(send_message, should_continue, on_source) -> SearchResult
                 if not IS_DEBUG_MODE and await repository.seen(job):
                     continue
                 update_error_context(operation='send_job')
-                keyboard = InlineKeyboardMarkup(
-                    inline_keyboard=[
-                        [InlineKeyboardButton(text="Open job 🔗", url=job.url)]
-                    ]
-                )
+                keyboard = job_post_keyboard(job.url)
                 await send_message(
                     f'🧑‍💻 *Title:* {escape_markdown(job.title)}\n\n'
                     f'🏝️ _Remote allowed:_ {escape_markdown(str(job.is_remote_allowed))}\n\n'

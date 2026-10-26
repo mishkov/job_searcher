@@ -58,6 +58,30 @@ class MainTestCase(unittest.IsolatedAsyncioTestCase):
 
 
 class MainReportingTests(MainTestCase):
+    async def test_delivered_job_has_link_and_applied_buttons(self):
+        self.source.fetch.return_value = [Job('Title', 'Description', '-', None, 'https://example.com/1', 'one')]
+        await self.main.search_jobs(self.message.answer)
+        buttons = self.message.answer.await_args.kwargs['reply_markup'].inline_keyboard
+        self.assertEqual(buttons[0][0].url, 'https://example.com/1')
+        self.assertEqual(buttons[1][0].text, '✅ Applied')
+        self.assertEqual(buttons[1][0].callback_data, self.main.ARCHIVE_POST)
+
+    async def test_callback_dispatch_reaches_job_post_actions(self):
+        from aiogram.types import CallbackQuery, Chat, Message, Update, User
+
+        handle = self.patch_object(self.main.job_post_actions, 'handle', new=AsyncMock())
+        bot = Bot(token='123456:ABCDEF')
+        self.addAsyncCleanup(bot.session.close)
+        for update_id, action in enumerate((self.main.ARCHIVE_POST, self.main.RESTORE_POST), 1):
+            callback = CallbackQuery(
+                id=str(update_id), from_user=User(id=12345, is_bot=False, first_name='Owner'),
+                chat_instance='chat', data=action,
+                message=Message(message_id=42, date=CUTOFF, chat=Chat(id=12345, type='private'), text='Job'),
+            )
+            await self.main.dp.feed_update(bot, Update(update_id=update_id, callback_query=callback))
+            self.assertEqual(handle.await_args.args[0].data, action)
+        self.assertEqual(handle.await_count, 2)
+
     async def test_stop_finishes_current_source_and_does_not_touch_later_history(self):
         self.config.SOURCES.append(RemoteOkJobsSourceConfig(SearchFilter(keywords=['python'])))
         proceed = True
