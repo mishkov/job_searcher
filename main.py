@@ -18,6 +18,7 @@ from aiogram.enums import ParseMode
 from src.error_reporting import ConsoleErrorReporter, posting_context, report_async_errors, update_error_context
 from src.job_sources.error_reporting_source import ErrorReportingJobsSource, source_error_context
 from src.job_sources.job_source import JobsSource
+from src.job_sources.ashby.ashby import AshbyFetchError, AshbyJobsSource, AshbyJobsSourceConfig
 from src.job_sources.comeet.comeet import ComeetFetchError, ComeetJobsSource, ComeetJobsSourceConfig
 from src.job_sources.aj_bell.aj_bell import AjBellFetchError, AjBellJobsSource, AjBellJobsSourceConfig
 from src.job_sources.andersen.andersen import AndersenFetchError, AndersenJobsSource, AndersenJobsSourceConfig
@@ -243,6 +244,8 @@ async def _search_jobs(send_message, should_continue, on_source) -> SearchResult
                 source = HackMotionJobsSource(source_config)
             elif isinstance(source_config, GreenhouseJobsSourceConfig):
                 source = GreenhouseJobsSource(source_config)
+            elif isinstance(source_config, AshbyJobsSourceConfig):
+                source = AshbyJobsSource(source_config)
             elif isinstance(source_config, ComeetJobsSourceConfig):
                 source = ComeetJobsSource(source_config)
             elif isinstance(source_config, BrightstarLotteryJobsSourceConfig):
@@ -271,7 +274,7 @@ async def _search_jobs(send_message, should_continue, on_source) -> SearchResult
                 NoDeskFetchError, WeWorkRemotelyFetchError, RelocateMeFetchError,
                 AndersenFetchError, SmartRecruitersFetchError, AjBellFetchError,
                 BrightstarLotteryFetchError, RipplingFetchError,
-                HackMotionFetchError, GreenhouseFetchError, ComeetFetchError,
+                HackMotionFetchError, GreenhouseFetchError, ComeetFetchError, AshbyFetchError,
             ):
                 result.failed_sources += 1
                 continue

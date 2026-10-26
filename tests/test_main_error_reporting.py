@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from aiogram import Bot
 
 from src.job import Job
+from src.job_sources.ashby.ashby import AshbyFetchError, AshbyJobsSourceConfig
 from src.job_sources.comeet.comeet import ComeetFetchError, ComeetJobsSourceConfig
 from src.job_sources.aj_bell.aj_bell import AjBellFetchError, AjBellJobsSourceConfig
 from src.job_sources.andersen.andersen import AndersenFetchError, AndersenJobsSourceConfig
@@ -63,6 +64,34 @@ class MainTestCase(unittest.IsolatedAsyncioTestCase):
 
 
 class MainReportingTests(MainTestCase):
+    async def test_ashby_companies_have_independent_checkpoints(self):
+        configs = [AshbyJobsSourceConfig(slug, SearchFilter(['flutter']))
+                   for slug in ('gismart', 'another-company')]
+        self.config.SOURCES = configs
+        sources = [Mock(config=config, fetch=AsyncMock(return_value=[])) for config in configs]
+        factory = self.patch_object(self.main, 'AshbyJobsSource', side_effect=sources)
+        result = await self.main.search_jobs(self.message.answer)
+        self.assertEqual([call.args[0] for call in factory.call_args_list], configs)
+        self.assertEqual([call.args[0] for call in self.repository.save_last_search_time.call_args_list],
+                         [config.history_key for config in configs])
+        for source in sources:
+            source.fetch.assert_awaited_once_with(CUTOFF)
+        self.assertEqual(result.failed_sources, 0)
+
+    async def test_ashby_failure_preserves_checkpoint_and_continues(self):
+        config = AshbyJobsSourceConfig('gismart', SearchFilter(['flutter']))
+        self.config.SOURCES.insert(0, config)
+        error = AshbyFetchError('Ashby returned HTTP 500')
+        source = Mock(config=config, fetch=AsyncMock(side_effect=error))
+        self.patch_object(self.main, 'AshbyJobsSource', return_value=source)
+        result = await self.main.search_jobs(self.message.answer)
+        self.assertEqual(result.failed_sources, 1)
+        self.report.assert_called_once()
+        self.assertIs(self.report.call_args.args[0], error)
+        self.source.fetch.assert_awaited_once()
+        self.repository.save_last_search_time.assert_awaited_once()
+        self.assertEqual(self.repository.save_last_search_time.call_args.args[0], self.source.config.history_key)
+
     async def test_comeet_companies_have_independent_checkpoints(self):
         configs = [ComeetJobsSourceConfig(slug, uid, SearchFilter(['flutter']))
                    for slug, uid in (('biocatch', '03.00E'), ('other', '98.008'))]
