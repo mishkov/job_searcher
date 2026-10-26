@@ -1,5 +1,13 @@
 # Source coverage
 
+## Comeet
+
+`ComeetJobsSourceConfig(company_slug, company_uid, filters)` requires both company
+identifiers from the board URL: `biocatch` and `03.00E` for
+`https://www.comeet.com/jobs/biocatch/03.00E`. A slug alone is insufficient.
+Use a separate entry for each company; each board and filter combination has
+independent search history. Date filtering uses the job's last update date.
+
 ## Greenhouse
 
 `GreenhouseJobsSourceConfig(company_slug, filters)` accepts the board slug from
