@@ -1,5 +1,14 @@
 # Source coverage
 
+## Greenhouse
+
+`GreenhouseJobsSourceConfig(company_slug, filters)` accepts the board slug from
+the job-board URL: `capitalontap` for
+`https://job-boards.greenhouse.io/capitalontap`. Use a separate entry for each
+company; each board and filter combination has independent search history.
+Date filtering uses the publication date when available, otherwise the last
+update date.
+
 ## AJ Bell techHub
 
 Checks the [tech vacancies](https://www.ajbell.co.uk/group/techhub/vacancies).
