@@ -1,6 +1,7 @@
 from dataclasses import replace
 
 from src.job_sources.aj_bell.aj_bell import AjBellJobsSourceConfig
+from src.job_sources.comeet.comeet import ComeetJobsSourceConfig
 from src.job_sources.andersen.andersen import AndersenJobsSourceConfig
 from src.job_sources.hackmotion.hackmotion import HackMotionJobsSourceConfig
 from src.job_sources.greenhouse.greenhouse import GreenhouseJobsSourceConfig
@@ -34,6 +35,7 @@ _filters_for_groups_with_cv = replace(
 
 SOURCES: list[JobsSourceConfig] = [
     AjBellJobsSourceConfig(_common_filters),
+    ComeetJobsSourceConfig('biocatch', '03.00E', _common_filters),
     AndersenJobsSourceConfig(_common_filters),
     HackMotionJobsSourceConfig(_common_filters),
     GreenhouseJobsSourceConfig('capitalontap', _common_filters),
