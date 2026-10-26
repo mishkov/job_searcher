@@ -18,6 +18,7 @@ from src.job_sources.brightstar_lottery.brightstar_lottery import (
 from src.job_sources.smartrecruiters.smartrecruiters import SmartRecruitersFetchError, SmartRecruitersJobsSourceConfig
 from src.job_sources.job_source import JobsSourceConfig
 from src.job_sources.remote_ok.remote_ok import RemoteOkFetchError, RemoteOkJobsSourceConfig
+from src.job_sources.rippling.rippling import RipplingFetchError, RipplingJobsSourceConfig
 from src.search_filter import SearchFilter
 from src.monitoring import MonitoringState, SearchResult, SleepPeriod, VacancyMonitor
 from src.storage.mysql.monitoring_store import MysqlMonitoringStore
@@ -150,6 +151,33 @@ class MainReportingTests(MainTestCase):
         source.fetch.assert_awaited_once_with(CUTOFF)
         self.repository.save_last_search_time.assert_awaited_once()
         self.assertEqual(self.repository.save_last_search_time.call_args.args[0], config.history_key)
+
+    async def test_rippling_wiring_and_successful_checkpoint(self):
+        config = RipplingJobsSourceConfig('sparq', SearchFilter(['flutter']))
+        self.config.SOURCES = [config]
+        source = Mock(config=config, fetch=AsyncMock(return_value=[]))
+        factory = self.patch_object(self.main, 'RipplingJobsSource', return_value=source)
+        result = await self.main.search_jobs(self.message.answer)
+        factory.assert_called_once_with(config)
+        source.fetch.assert_awaited_once_with(CUTOFF)
+        self.repository.save_last_search_time.assert_awaited_once()
+        self.assertEqual(self.repository.save_last_search_time.call_args.args[0], config.history_key)
+        self.assertEqual(result.failed_sources, 0)
+
+    async def test_rippling_failure_keeps_checkpoint_and_continues(self):
+        config = RipplingJobsSourceConfig('sparq', SearchFilter(['flutter']))
+        self.config.SOURCES.insert(0, config)
+        error = RipplingFetchError('Rippling returned HTTP 500')
+        source = Mock(config=config, fetch=AsyncMock(side_effect=error))
+        self.patch_object(self.main, 'RipplingJobsSource', return_value=source)
+        result = await self.main.search_jobs(self.message.answer)
+        self.report.assert_called_once()
+        self.assertIs(self.report.call_args.args[0], error)
+        self.assertEqual(self.report.call_args.kwargs['context']['source'], 'Rippling: sparq')
+        self.source.fetch.assert_awaited_once()
+        self.repository.save_last_search_time.assert_awaited_once()
+        self.assertEqual(self.repository.save_last_search_time.call_args.args[0], self.source.config.history_key)
+        self.assertEqual(result.failed_sources, 1)
 
     async def test_brightstar_lottery_wiring_and_successful_checkpoint(self):
         config = BrightstarLotteryJobsSourceConfig(SearchFilter(['flutter']))

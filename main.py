@@ -30,6 +30,7 @@ from src.job_sources.telegram_channel.telegram_channel import TelegramChannelJob
 from src.job_sources.geek_job_ru.geek_job_ru import GeekJobRuJobsSource, GeekJobRuJobsSourceConfig
 from src.job_sources.web3_career.web3_career import Web3CareerFetchError, Web3CareerJobsSource, Web3CareerJobsSourceConfig
 from src.job_sources.remote_ok.remote_ok import RemoteOkFetchError, RemoteOkJobsSource, RemoteOkJobsSourceConfig
+from src.job_sources.rippling.rippling import RipplingFetchError, RipplingJobsSource, RipplingJobsSourceConfig
 from src.job_sources.nodesk.nodesk import NoDeskFetchError, NoDeskJobsSource, NoDeskJobsSourceConfig
 from src.job_sources.nodesk.api import NoDeskApi
 from src.job_sources.nodesk.python_requests_api import PythonRequestsModuleNoDeskApi
@@ -236,6 +237,8 @@ async def _search_jobs(send_message, should_continue, on_source) -> SearchResult
                 source = BrightstarLotteryJobsSource(source_config)
             elif isinstance(source_config, SmartRecruitersJobsSourceConfig):
                 source = SmartRecruitersJobsSource(source_config)
+            elif isinstance(source_config, RipplingJobsSourceConfig):
+                source = RipplingJobsSource(source_config)
             elif isinstance(source_config, NoDeskJobsSourceConfig):
                 source = NoDeskJobsSource(source_config, nodesk_api)
             elif isinstance(source_config, RelocateMeJobsSourceConfig):
@@ -255,7 +258,7 @@ async def _search_jobs(send_message, should_continue, on_source) -> SearchResult
                 Web3CareerFetchError, WelcomeToTheJungleFetchError, RemoteOkFetchError,
                 NoDeskFetchError, WeWorkRemotelyFetchError, RelocateMeFetchError,
                 AndersenFetchError, SmartRecruitersFetchError,
-                BrightstarLotteryFetchError,
+                BrightstarLotteryFetchError, RipplingFetchError,
             ):
                 result.failed_sources += 1
                 continue
