@@ -12,6 +12,9 @@ filters:
 cp config.example.py config.py
 ```
 
+Send `/start` in a private chat with the bot to enable automatic checks and receive
+vacancies there. See [bot usage](docs/BOT_USAGE.md) for commands and sleeping time.
+
 To use Web3.career, obtain a token from its
 [official API page](https://web3.career/web3-jobs-api) and add it to `.env`:
 

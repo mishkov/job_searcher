@@ -4,14 +4,15 @@ import re
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
 from telethon import TelegramClient
-from dataclasses import replace
 
-import asyncio
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import (
+    BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message, ReplyKeyboardMarkup,
+)
 from aiogram.enums import ParseMode
 
 from src.error_reporting import ConsoleErrorReporter, posting_context, report_async_errors, update_error_context
@@ -22,7 +23,6 @@ from src.job_sources.smartrecruiters.smartrecruiters import (
     SmartRecruitersFetchError, SmartRecruitersJobsSource, SmartRecruitersJobsSourceConfig,
 )
 from src.job_sources.telegram_channel.telegram_channel import TelegramChannelJobsSource, TelegramChannelJobsSourceConfig
-from src.search_filter import SearchFilter
 
 from src.job_sources.geek_job_ru.geek_job_ru import GeekJobRuJobsSource, GeekJobRuJobsSourceConfig
 from src.job_sources.web3_career.web3_career import Web3CareerFetchError, Web3CareerJobsSource, Web3CareerJobsSourceConfig
@@ -49,7 +49,9 @@ from src.job_sources.we_work_remotely.we_work_remotely import (
 )
 
 from src.storage.mysql.base import Base
-from src.storage.mysql.mysql_jobs_search_history_repository import MysqlJobsSearchHistoryRespository
+from src.storage.mysql.threaded_history_repository import ThreadedHistoryRepository
+from src.storage.mysql.monitoring_store import MysqlMonitoringStore
+from src.monitoring import SearchResult, SleepPeriod, VacancyMonitor
 
 import config
 
@@ -73,8 +75,11 @@ search_lock = asyncio.Lock()
 keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [
-            KeyboardButton(text="/search"),
-        ]
+            KeyboardButton(text="/start"),
+            KeyboardButton(text="/stop"),
+            KeyboardButton(text="/status"),
+        ],
+        [KeyboardButton(text="/setsleeptime")],
     ],
     resize_keyboard=True,
     is_persistent=True,
@@ -92,132 +97,182 @@ engine = create_engine(
     os.environ['DATABASE_URL']
 )
 
+monitor: VacancyMonitor | None = None
+
+
+class SleepSettings(StatesGroup):
+    waiting_for_period = State()
+
+
+def is_private_chat(message: Message) -> bool:
+    return message.chat.type == 'private'
+
+
 @dp.message(CommandStart())
 @report_async_errors(error_reporter, operation='start_command')
-async def start(message: Message):
-    await message.answer("Welcome!", reply_markup=keyboard)
+async def start(message: Message, state: FSMContext):
+    if not is_private_chat(message):
+        return
+    await state.clear()
+    enabled = await monitor.start(message.chat.id)
+    text = 'Automatic checks enabled.' if enabled else 'Automatic checks are already enabled.'
+    await message.answer(f'{text}\n{monitor.status()}', reply_markup=keyboard)
 
-@dp.message(Command("search"))
+
+@dp.message(Command('stop'))
+@report_async_errors(error_reporter, operation='stop_command')
+async def stop(message: Message, state: FSMContext):
+    if not is_private_chat(message):
+        return
+    await state.clear()
+    await monitor.stop()
+    text = 'Automatic checks paused.'
+    if monitor.running:
+        text += ' Finishing the current source and its deliveries first.'
+    await message.answer(text, reply_markup=keyboard)
+
+
+@dp.message(Command('status'))
+@report_async_errors(error_reporter, operation='status_command')
+async def status(message: Message, state: FSMContext):
+    if not is_private_chat(message):
+        return
+    await state.clear()
+    await message.answer(monitor.status(), reply_markup=keyboard)
+
+
+@dp.message(Command('setsleeptime'))
+@report_async_errors(error_reporter, operation='set_sleep_command')
+async def set_sleep_time(message: Message, state: FSMContext):
+    if not is_private_chat(message):
+        return
+    await message.answer(
+        'Send your daily sleep period in 24-hour format: 23:00-08:00.\n'
+        'The period can cross midnight. Automatic checks pause during this time.\n'
+        'A source already running finishes with its deliveries before pausing.\n'
+        f'Timezone: Europe/Minsk\nCurrent sleep period: {monitor.state.sleep or "Off"}\n'
+        'Send off to disable sleeping time, or /cancel to keep the current setting.'
+    )
+    await state.set_state(SleepSettings.waiting_for_period)
+
+
+@dp.message(Command('cancel'))
+@report_async_errors(error_reporter, operation='cancel_command')
+async def cancel(message: Message, state: FSMContext):
+    if not is_private_chat(message):
+        return
+    await state.clear()
+    await message.answer('Sleeping time unchanged.', reply_markup=keyboard)
+
+
+@dp.message(SleepSettings.waiting_for_period, F.text, ~F.text.startswith('/'))
+@report_async_errors(error_reporter, operation='save_sleep_time')
+async def save_sleep_time(message: Message, state: FSMContext):
+    if not is_private_chat(message):
+        return
+    value = message.text.strip()
+    try:
+        period = None if value.lower() == 'off' else SleepPeriod.parse(value)
+    except ValueError as error:
+        await message.answer(f'{error} Send /cancel to keep the current setting.')
+        return
+    await monitor.set_sleep(period)
+    await state.clear()
+    await message.answer(
+        f'Sleeping time saved: {period or "Off"} (Europe/Minsk).\n{monitor.status()}',
+        reply_markup=keyboard,
+    )
+
+
 @report_async_errors(error_reporter, operation='search')
-async def jobs(message: Message):
+async def search_jobs(send_message, should_continue=lambda: True, on_source=lambda name: None) -> SearchResult:
     # A search owns the Telegram client and delivery/history sequence until done.
     async with search_lock:
-        await _search_jobs(message)
+        return await _search_jobs(send_message, should_continue, on_source)
 
 
-async def _search_jobs(message: Message):
-    status_text ='🔎 Starting jobs search...'
-    update_error_context(operation='send_search_status')
-    status_message = await message.answer(status_text)
-
+async def _search_jobs(send_message, should_continue, on_source) -> SearchResult:
+    result = SearchResult()
     update_error_context(operation='connect_telegram')
     async with client:
-        status_text = '🗃️ Starting database...'
         update_error_context(operation='open_history')
-        with Session(engine) as session:
-            repository = MysqlJobsSearchHistoryRespository(session)
+        repository = ThreadedHistoryRepository(engine)
+        for source_config in config.SOURCES:
+            if not should_continue():
+                result.interrupted = True
+                break
+            on_source(source_config.name)
+            source_key = source_config.history_key
+            update_error_context(**source_error_context(source_config), since=None,
+                                 operation='read_search_history', posting=None)
+            since = await repository.get_last_search_time(source_key) if not IS_DEBUG_MODE else None
+            source_since = since if since else datetime.now(timezone.utc) - timedelta(days=7)
+            update_error_context(since=source_since.isoformat(), operation='create_source')
+            source: JobsSource
+            if isinstance(source_config, TelegramChannelJobsSourceConfig):
+                source = TelegramChannelJobsSource(client, source_config)
+            elif isinstance(source_config, GeekJobRuJobsSourceConfig):
+                source = GeekJobRuJobsSource(source_config)
+            elif isinstance(source_config, Web3CareerJobsSourceConfig):
+                source = Web3CareerJobsSource(source_config)
+            elif isinstance(source_config, RemoteOkJobsSourceConfig):
+                source = RemoteOkJobsSource(source_config)
+            elif isinstance(source_config, AndersenJobsSourceConfig):
+                source = AndersenJobsSource(source_config)
+            elif isinstance(source_config, SmartRecruitersJobsSourceConfig):
+                source = SmartRecruitersJobsSource(source_config)
+            elif isinstance(source_config, NoDeskJobsSourceConfig):
+                source = NoDeskJobsSource(source_config, nodesk_api)
+            elif isinstance(source_config, RelocateMeJobsSourceConfig):
+                source = RelocateMeJobsSource(source_config, relocate_me_api)
+            elif isinstance(source_config, WelcomeToTheJungleJobsSourceConfig):
+                source = WelcomeToTheJungleJobsSource(source_config)
+            elif isinstance(source_config, WeWorkRemotelyJobsSourceConfig):
+                source = WeWorkRemotelyJobsSource(source_config, wwr_api)
+            else:
+                raise ValueError(f"Unknown source: {type(source_config)}")
 
-            foundJobsCount = 0
+            source = ErrorReportingJobsSource(source, error_reporter)
+            started_at = datetime.now(timezone.utc)
+            try:
+                jobs = await source.fetch(since=source_since)
+            except (
+                Web3CareerFetchError, WelcomeToTheJungleFetchError, RemoteOkFetchError,
+                NoDeskFetchError, WeWorkRemotelyFetchError, RelocateMeFetchError,
+                AndersenFetchError, SmartRecruitersFetchError,
+            ):
+                result.failed_sources += 1
+                continue
 
-            status_text = '🔎 Searching in sources...\n'
-            for source_config in config.SOURCES:
-                source_key = source_config.history_key
-                update_error_context(**source_error_context(source_config), since=None,
-                                     operation='read_search_history', posting=None)
-                since = await repository.get_last_search_time(source_key) if not IS_DEBUG_MODE else None
-                source_since = since if since else datetime.now(timezone.utc) - timedelta(days=7)
-                update_error_context(since=source_since.isoformat(), operation='source_status')
-                status_text_per_source = f'{status_text}\n🔎 {source_config.name}'
-                await status_message.edit_text(status_text_per_source)
-
-                update_error_context(operation='create_source')
-                source: JobsSource
-                if isinstance(source_config, TelegramChannelJobsSourceConfig):
-                    source = TelegramChannelJobsSource(client, source_config)
-                elif isinstance(source_config, GeekJobRuJobsSourceConfig):
-                    source = GeekJobRuJobsSource(source_config)
-                elif isinstance(source_config, Web3CareerJobsSourceConfig):
-                    source = Web3CareerJobsSource(source_config)
-                elif isinstance(source_config, RemoteOkJobsSourceConfig):
-                    source = RemoteOkJobsSource(source_config)
-                elif isinstance(source_config, AndersenJobsSourceConfig):
-                    source = AndersenJobsSource(source_config)
-                elif isinstance(source_config, SmartRecruitersJobsSourceConfig):
-                    source = SmartRecruitersJobsSource(source_config)
-                elif isinstance(source_config, NoDeskJobsSourceConfig):
-                    source = NoDeskJobsSource(source_config, nodesk_api)
-                elif isinstance(source_config, RelocateMeJobsSourceConfig):
-                    source = RelocateMeJobsSource(source_config, relocate_me_api)
-                elif isinstance(source_config, WelcomeToTheJungleJobsSourceConfig):
-                    source = WelcomeToTheJungleJobsSource(source_config)
-                elif isinstance(source_config, WeWorkRemotelyJobsSourceConfig):
-                    source = WeWorkRemotelyJobsSource(source_config, wwr_api)
-                else:
-                    raise ValueError(f"Unknown source: {type(source_config)}")
-
-
-                source = ErrorReportingJobsSource(source, error_reporter)
-                started_at = datetime.now(timezone.utc)
-                try:
-                    jobs = await source.fetch(since=source_since)
-                except (
-                    Web3CareerFetchError, WelcomeToTheJungleFetchError, RemoteOkFetchError,
-                    NoDeskFetchError, WeWorkRemotelyFetchError, RelocateMeFetchError,
-                    AndersenFetchError, SmartRecruitersFetchError,
-                ) as error:
-                    update_error_context(operation='source_status', posting=None)
-                    status_text = f"{status_text}\n❌ {source_config.name} [Failed: {str(error)[:300]}]"
-                    await status_message.edit_text(status_text)
+            for job in jobs:
+                update_error_context(operation='check_seen_job', posting=posting_context(vars(job)))
+                if not IS_DEBUG_MODE and await repository.seen(job):
                     continue
-
-                sourceFoundJobs = 0
-                for job in jobs:
-                    update_error_context(operation='check_seen_job', posting=posting_context(vars(job)))
-
-                    if not IS_DEBUG_MODE and await repository.seen(job):
-                        continue
-
-                    update_error_context(operation='send_job')
-                    keyboard = InlineKeyboardMarkup(
-                        inline_keyboard=[
-                            [InlineKeyboardButton(text="Open job 🔗", url=job.url)]
-                        ]
-                    )
-                    await message.answer(
-                        f'🧑‍💻 *Title:* {escape_markdown(job.title)}\n\n'
-                        f'🏝️ _Remote allowed:_ {escape_markdown(str(job.is_remote_allowed))}\n\n'
-                        f'💸 _Salary:_ {escape_markdown(job.salary)}\n\n'
-                        f'📜 {escape_markdown(job.description[:500])}\\.\\.\\.',
-                        parse_mode=ParseMode.MARKDOWN_V2,
-                        reply_markup=keyboard
-                    )
-
-                    if not IS_DEBUG_MODE:
-                        update_error_context(operation='save_seen_job')
-                        await repository.add_seen_job(job)
-                    sourceFoundJobs += 1
-
-                    update_error_context(operation='source_status')
-                    status_text_per_source = f"{status_text}\n⏳ {source_config.name} [Found: {sourceFoundJobs}]"
-                    await status_message.edit_text(status_text_per_source)
+                update_error_context(operation='send_job')
+                keyboard = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [InlineKeyboardButton(text="Open job 🔗", url=job.url)]
+                    ]
+                )
+                await send_message(
+                    f'🧑‍💻 *Title:* {escape_markdown(job.title)}\n\n'
+                    f'🏝️ _Remote allowed:_ {escape_markdown(str(job.is_remote_allowed))}\n\n'
+                    f'💸 _Salary:_ {escape_markdown(job.salary)}\n\n'
+                    f'📜 {escape_markdown(job.description[:500])}\\.\\.\\.',
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                    reply_markup=keyboard
+                )
 
                 if not IS_DEBUG_MODE:
-                    update_error_context(operation='save_search_time', posting=None)
-                    await repository.save_last_search_time(source_key, started_at)
+                    update_error_context(operation='save_seen_job')
+                    await repository.add_seen_job(job)
+                result.delivered += 1
 
-                update_error_context(operation='source_status', posting=None)
-                foundJobsCount += sourceFoundJobs
+            if not IS_DEBUG_MODE:
+                update_error_context(operation='save_search_time', posting=None)
+                await repository.save_last_search_time(source_key, started_at)
+    return result
 
-                status_text = f"{status_text}\n✅ {source_config.name} [Found: {sourceFoundJobs}]"
-                await status_message.edit_text(status_text)
-
-
-            update_error_context(operation='send_search_summary', source=None, source_type=None,
-                                 filters=None, posting=None)
-            if foundJobsCount == 0:
-                await message.answer('No new jobs found')
-            else:
-                await message.answer(f'Found {foundJobsCount} new jobs')
 
 def escape_markdown(text: str) -> str:
     return re.sub(
@@ -228,18 +283,42 @@ def escape_markdown(text: str) -> str:
 
 @report_async_errors(error_reporter, operation='startup')
 async def main():
-    print(f'Running in {'DEBUG' if IS_DEBUG_MODE else 'RELEASE'} mode')
-    print('Initializign database...')
+    global monitor
+    print(f'Running in {"DEBUG" if IS_DEBUG_MODE else "RELEASE"} mode')
     update_error_context(operation='initialize_database')
-    Base.metadata.create_all(engine)
-    print('Database Initialized')
+    await asyncio.to_thread(Base.metadata.create_all, engine)
 
+    update_error_context(operation='configure_monitoring')
+    store = MysqlMonitoringStore(engine)
+    saved_state = await store.load()
     update_error_context(operation='create_bot')
-    bot = Bot(token=os.environ['TELEGRAM_BOT_TOKEN'])
-    print('Starting telegram bot...')
-    update_error_context(operation='poll_telegram')
-    await dp.start_polling(bot)
-    print('Telegram bot stopped')
+    async with Bot(token=os.environ['TELEGRAM_BOT_TOKEN']) as bot:
+        async def search(should_continue, on_source):
+            # Keep a running check's destination stable if another chat sends /start.
+            chat_id = monitor.state.chat_id
+            async def send(text, **kwargs):
+                await bot.send_message(chat_id, text, **kwargs)
+            return await search_jobs(send, should_continue, on_source)
+
+        monitor = VacancyMonitor(store, saved_state, float(config.FETCH_PERIOD_IN_MINUTES),
+                                 search, error_reporter)
+        await bot.set_my_commands([
+            BotCommand(command='start', description='Enable automatic vacancy checks'),
+            BotCommand(command='stop', description='Pause automatic checks'),
+            BotCommand(command='status', description='Show monitoring status'),
+            BotCommand(command='setsleeptime', description='Set daily sleeping time'),
+            BotCommand(command='cancel', description='Cancel sleeping-time setup'),
+        ])
+        worker = asyncio.create_task(monitor.run())
+        try:
+            update_error_context(operation='poll_telegram')
+            await dp.start_polling(bot, close_bot_session=False)
+        finally:
+            monitor.close()
+            await worker
+            await client.disconnect()
+            await asyncio.to_thread(engine.dispose)
+
 
 if __name__ == '__main__':
     asyncio.run(main())

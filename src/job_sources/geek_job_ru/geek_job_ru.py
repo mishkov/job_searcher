@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 
 from dotenv import load_dotenv
@@ -22,10 +23,14 @@ class GeekJobRuJobsSource(JobsSource[GeekJobRuJobsSourceConfig]):
         super().__init__(config)
 
     async def fetch(self, since: datetime) -> list[Job]:
+        return await asyncio.to_thread(self._fetch, since)
+
+    def _fetch(self, since: datetime) -> list[Job]:
         jobs: list[Job] = []
         for url in self._collect_job_urls(since):
             update_error_context(operation='fetch_posting', posting=posting_context({'url': url}))
             response = requests.get(url, timeout=15)
+            response.raise_for_status()
             update_error_context(operation='parse_posting')
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -93,11 +98,12 @@ class GeekJobRuJobsSource(JobsSource[GeekJobRuJobsSourceConfig]):
                 search_url += '&qs=%22' + keyword +'%22'
 
             update_error_context(operation='fetch_listing', page=page, keyword=keyword, posting=None)
-            response = requests.get(search_url)
+            response = requests.get(search_url, timeout=15)
             response.raise_for_status()
             data = response.json()
 
             has_next_page = data['nextpage'] > 0
+            page += 1
 
             for vacancy_data in data['data']:
                 update_error_context(operation='parse_posting', posting=posting_context(vacancy_data))
