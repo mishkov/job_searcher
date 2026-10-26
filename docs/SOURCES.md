@@ -1,5 +1,26 @@
 # Source coverage
 
+## Telegram
+
+For channels that append promotional text, set `ignored_text_fragments` on
+`TelegramChannelJobsSourceConfig`:
+
+```python
+TelegramChannelJobsSourceConfig(
+    "channel_name",
+    SearchFilter(keywords=["flutter"]),
+    ignored_text_fragments=[
+        "Flutter & Dart | Мобильный трудоголик - Канал про разработку на Flutter.",
+    ],
+)
+```
+
+Fragments are literal plain text, without Markdown formatting markers. Matching
+ignores case but preserves whitespace and punctuation. Fragments are removed in
+the configured order before checking both inclusion and exclusion keywords;
+keyword occurrences elsewhere still count. Delivered messages keep their original
+text. Changing fragments starts a fresh lookback with the new rules.
+
 ## SmartRecruiters
 
 Searches cover at most 100 results per keyword. Broad keywords, wildcard searches,

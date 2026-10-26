@@ -5,6 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from src.job import Job
+from src.job_sources.job_source import JobsSourceConfig
 from src.job_sources.remote_ok.remote_ok import RemoteOkJobsSourceConfig
 from src.job_sources.telegram_channel.telegram_channel import TelegramChannelJobsSourceConfig
 from src.job_sources.web3_career.web3_career import Web3CareerJobsSourceConfig
@@ -43,6 +44,29 @@ class SourceIdentityTests(unittest.TestCase):
         self.assertEqual(len({config.history_key for config in configs}), len(configs))
         equivalent = TelegramChannelJobsSourceConfig('@JOBS', filters)
         self.assertEqual(configs[0].history_key, equivalent.history_key)
+
+    def test_telegram_empty_fragments_preserve_existing_checkpoint(self):
+        for fragments in (None, [], ['']):
+            with self.subTest(fragments=fragments):
+                config = TelegramChannelJobsSourceConfig('jobs', SearchFilter(['flutter']),
+                                                         ignored_text_fragments=fragments)
+                self.assertEqual(config.history_key, JobsSourceConfig.history_key.fget(config))
+
+    def test_telegram_fragment_changes_get_independent_checkpoints(self):
+        filters = SearchFilter(['flutter'])
+        configs = [TelegramChannelJobsSourceConfig('jobs', filters, ignored_text_fragments=fragments)
+                   for fragments in (None, ['promotion'], ['other'], ['promotion', 'other'], ['other', 'promotion'])]
+        self.assertEqual(len({config.history_key for config in configs}), len(configs))
+        equivalent = TelegramChannelJobsSourceConfig('@JOBS', filters, ignored_text_fragments=['PROMOTION'])
+        self.assertEqual(configs[1].history_key, equivalent.history_key)
+
+    def test_telegram_copies_configured_fragments(self):
+        fragments = ['promotion']
+        config = TelegramChannelJobsSourceConfig('jobs', SearchFilter(), ignored_text_fragments=fragments)
+        key = config.history_key
+        fragments.append('another promotion')
+        self.assertEqual(config.ignored_text_fragments, ('promotion',))
+        self.assertEqual(config.history_key, key)
 
 
 class SourceHistoryTests(unittest.IsolatedAsyncioTestCase):
