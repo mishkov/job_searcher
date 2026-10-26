@@ -14,6 +14,7 @@ from src.job import Job
 from src.job_sources.aj_bell.aj_bell import AjBellFetchError, AjBellJobsSourceConfig
 from src.job_sources.andersen.andersen import AndersenFetchError, AndersenJobsSourceConfig
 from src.job_sources.hackmotion.hackmotion import HackMotionFetchError, HackMotionJobsSourceConfig
+from src.job_sources.greenhouse.greenhouse import GreenhouseFetchError, GreenhouseJobsSourceConfig
 from src.job_sources.brightstar_lottery.brightstar_lottery import (
     BrightstarLotteryFetchError, BrightstarLotteryJobsSourceConfig,
 )
@@ -61,6 +62,34 @@ class MainTestCase(unittest.IsolatedAsyncioTestCase):
 
 
 class MainReportingTests(MainTestCase):
+    async def test_greenhouse_companies_have_independent_checkpoints(self):
+        configs = [GreenhouseJobsSourceConfig(slug, SearchFilter(['flutter']))
+                   for slug in ('capitalontap', 'another-company')]
+        self.config.SOURCES = configs
+        sources = [Mock(config=config, fetch=AsyncMock(return_value=[])) for config in configs]
+        factory = self.patch_object(self.main, 'GreenhouseJobsSource', side_effect=sources)
+        result = await self.main.search_jobs(self.message.answer)
+        self.assertEqual([call.args[0] for call in factory.call_args_list], configs)
+        self.assertEqual([call.args[0] for call in self.repository.save_last_search_time.call_args_list],
+                         [config.history_key for config in configs])
+        for source in sources:
+            source.fetch.assert_awaited_once_with(CUTOFF)
+        self.assertEqual(result.failed_sources, 0)
+
+    async def test_greenhouse_failure_preserves_checkpoint_and_continues(self):
+        config = GreenhouseJobsSourceConfig('capitalontap', SearchFilter(['flutter']))
+        self.config.SOURCES.insert(0, config)
+        error = GreenhouseFetchError('Greenhouse returned HTTP 500')
+        source = Mock(config=config, fetch=AsyncMock(side_effect=error))
+        self.patch_object(self.main, 'GreenhouseJobsSource', return_value=source)
+        result = await self.main.search_jobs(self.message.answer)
+        self.assertEqual(result.failed_sources, 1)
+        self.report.assert_called_once()
+        self.assertIs(self.report.call_args.args[0], error)
+        self.source.fetch.assert_awaited_once()
+        self.repository.save_last_search_time.assert_awaited_once()
+        self.assertEqual(self.repository.save_last_search_time.call_args.args[0], self.source.config.history_key)
+
     async def test_hackmotion_wiring_and_successful_checkpoint(self):
         config = HackMotionJobsSourceConfig(SearchFilter(['flutter']))
         self.config.SOURCES = [config]
