@@ -103,7 +103,7 @@ class SourceReportingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_telegram_link_resolution_failure_identifies_channel_and_message(self):
         async def messages():
-            yield Mock(id=123, date=CUTOFF, text='Flutter')
+            yield Mock(id=123, date=CUTOFF, text='Flutter', raw_text='Flutter')
         client = Mock(iter_messages=Mock(return_value=messages()))
         source = TelegramChannelJobsSource(client, TelegramChannelJobsSourceConfig('example', self.filters, forum_id=5))
         with patch.object(source, '_get_message_url', new=AsyncMock(side_effect=RuntimeError('chat unavailable'))):
@@ -115,7 +115,7 @@ class SourceReportingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_telegram_pagination_failure_does_not_identify_previous_message(self):
         async def messages():
-            yield Mock(id=123, date=CUTOFF, text=None)
+            yield Mock(id=123, date=CUTOFF, text=None, raw_text=None)
             raise RuntimeError('next page failed')
         source = TelegramChannelJobsSource(Mock(iter_messages=Mock(return_value=messages())),
                                            TelegramChannelJobsSourceConfig('example', self.filters))

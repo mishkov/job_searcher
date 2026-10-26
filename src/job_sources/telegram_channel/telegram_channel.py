@@ -1,5 +1,6 @@
 from datetime import datetime
 import hashlib
+import json
 
 from telethon import TelegramClient
 from telethon.hints import EntityLike
@@ -11,7 +12,8 @@ from src.job_sources.job_source import JobsSource, JobsSourceConfig
 from src.search_filter import SearchFilter
 
 class TelegramChannelJobsSourceConfig(JobsSourceConfig):
-    def __init__(self, entity: EntityLike, filters: SearchFilter, forum_id: int | None = None):
+    def __init__(self, entity: EntityLike, filters: SearchFilter, forum_id: int | None = None,
+                 *, ignored_text_fragments: list[str] | None = None):
         if isinstance(entity, str) and entity.startswith('@'):
             entity = entity.removeprefix('@')
 
@@ -22,11 +24,24 @@ class TelegramChannelJobsSourceConfig(JobsSourceConfig):
 
         self.entity = entity
         self.forum_id = forum_id
+        self.ignored_text_fragments = tuple(fragment for fragment in (ignored_text_fragments or []) if fragment)
 
     @property
     def history_identity(self) -> str:
         entity = str(self.entity).removeprefix('@').lower()
         return f'telegram:{entity}:{self.forum_id or 0}'
+
+    @property
+    def history_key(self) -> str:
+        key = super().history_key
+        if not self.ignored_text_fragments:
+            return key
+        identity = {
+            'source_history_key': key,
+            'ignored_text_fragments': [fragment.casefold() for fragment in self.ignored_text_fragments],
+        }
+        payload = json.dumps(identity, sort_keys=True, separators=(',', ':'))
+        return hashlib.sha256(payload.encode()).hexdigest()
 
 class TelegramChannelJobsSource(JobsSource[TelegramChannelJobsSourceConfig]):
     def __init__(self, client: TelegramClient, config: TelegramChannelJobsSourceConfig):
@@ -36,6 +51,7 @@ class TelegramChannelJobsSource(JobsSource[TelegramChannelJobsSourceConfig]):
 
     async def fetch(self, since: datetime) -> list[Job]:
         result: list[Job] = []
+        ignored_fragments = [fragment.casefold() for fragment in self.config.ignored_text_fragments]
 
         messages_iter = self.client.iter_messages(self.config.entity, reply_to=self.config.forum_id) if self.config.forum_id  else self.client.iter_messages(self.config.entity) 
         messages_iter = aiter(messages_iter)
@@ -50,12 +66,16 @@ class TelegramChannelJobsSource(JobsSource[TelegramChannelJobsSourceConfig]):
             if message.date < since:
                 break
 
-            if not message.text:
+            if not message.raw_text:
                 continue
+
+            filter_text = message.raw_text.casefold()
+            for fragment in ignored_fragments:
+                filter_text = filter_text.replace(fragment, ' ')
 
             has_exclude_keyword = False
             for keyword in self.config.filters.exclude_keywords:
-                if keyword.lower() in message.text.lower():
+                if keyword.casefold() in filter_text:
                     has_exclude_keyword = True
                     break
             if has_exclude_keyword:
@@ -64,7 +84,7 @@ class TelegramChannelJobsSource(JobsSource[TelegramChannelJobsSourceConfig]):
             if not '*' in self.config.filters.keywords:
                 has_keyword = False
                 for keyword in self.config.filters.keywords:
-                    if keyword.lower() in message.text.lower():
+                    if keyword.casefold() in filter_text:
                         has_keyword = True
 
                         break
