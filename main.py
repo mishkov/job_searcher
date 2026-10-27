@@ -1,5 +1,6 @@
 import os
 import asyncio
+import logging
 import re
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone
@@ -16,6 +17,7 @@ from aiogram.types import (
 from aiogram.enums import ParseMode
 
 from src.error_reporting import ConsoleErrorReporter, posting_context, report_async_errors, update_error_context
+from src.logging_config import configure_logging
 from src.job_sources.error_reporting_source import ErrorReportingJobsSource, source_error_context
 from src.job_sources.job_source import JobsSource
 from src.job_sources.ashby.ashby import AshbyFetchError, AshbyJobsSource, AshbyJobsSourceConfig
@@ -68,6 +70,7 @@ import config
 
 
 load_dotenv()
+configure_logging()
 
 error_reporter = ConsoleErrorReporter()
 
@@ -315,7 +318,7 @@ def escape_markdown(text: str) -> str:
 @report_async_errors(error_reporter, operation='startup')
 async def main():
     global monitor
-    print(f'Running in {"DEBUG" if IS_DEBUG_MODE else "RELEASE"} mode')
+    logging.getLogger(__name__).info('Running in %s mode', 'DEBUG' if IS_DEBUG_MODE else 'RELEASE')
     update_error_context(operation='initialize_database')
     await asyncio.to_thread(Base.metadata.create_all, engine)
 
