@@ -1,5 +1,12 @@
 # Source coverage
 
+## Betera and MaxLine
+
+These sites do not publish vacancy dates, so the first check includes all active
+matches regardless of the usual seven-day lookback. Saved job history prevents
+repeat deliveries. Betera's general CV submission listing is excluded.
+MaxLine advertises office work in Minsk.
+
 ## Ashby
 
 `AshbyJobsSourceConfig(company_slug, filters)` accepts the board slug from the

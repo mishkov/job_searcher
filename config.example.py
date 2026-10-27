@@ -1,5 +1,7 @@
 from dataclasses import replace
 
+from src.job_sources.betera.betera import BeteraJobsSourceConfig
+from src.job_sources.maxline.maxline import MaxLineJobsSourceConfig
 from src.job_sources.aj_bell.aj_bell import AjBellJobsSourceConfig
 from src.job_sources.ashby.ashby import AshbyJobsSourceConfig
 from src.job_sources.comeet.comeet import ComeetJobsSourceConfig
@@ -35,6 +37,8 @@ _filters_for_groups_with_cv = replace(
     )
 
 SOURCES: list[JobsSourceConfig] = [
+    BeteraJobsSourceConfig(_common_filters),
+    MaxLineJobsSourceConfig(_common_filters),
     AjBellJobsSourceConfig(_common_filters),
     AshbyJobsSourceConfig('gismart', _common_filters),
     ComeetJobsSourceConfig('biocatch', '03.00E', _common_filters),
