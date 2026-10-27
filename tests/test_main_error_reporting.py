@@ -11,6 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from aiogram import Bot
 
 from src.job import Job
+from src.job_sources.betera.betera import BeteraFetchError, BeteraJobsSourceConfig
+from src.job_sources.maxline.maxline import MaxLineFetchError, MaxLineJobsSourceConfig
 from src.job_sources.ashby.ashby import AshbyFetchError, AshbyJobsSourceConfig
 from src.job_sources.comeet.comeet import ComeetFetchError, ComeetJobsSourceConfig
 from src.job_sources.aj_bell.aj_bell import AjBellFetchError, AjBellJobsSourceConfig
@@ -64,6 +66,46 @@ class MainTestCase(unittest.IsolatedAsyncioTestCase):
 
 
 class MainReportingTests(MainTestCase):
+    async def test_betera_and_maxline_wiring_with_independent_checkpoints(self):
+        configs = [BeteraJobsSourceConfig(SearchFilter(['flutter'])),
+                   MaxLineJobsSourceConfig(SearchFilter(['flutter']))]
+        self.config.SOURCES = configs
+        sources = [Mock(config=config, fetch=AsyncMock(return_value=[])) for config in configs]
+        betera = self.patch_object(self.main, 'BeteraJobsSource', return_value=sources[0])
+        maxline = self.patch_object(self.main, 'MaxLineJobsSource', return_value=sources[1])
+        result = await self.main.search_jobs(self.message.answer)
+        betera.assert_called_once_with(configs[0])
+        maxline.assert_called_once_with(configs[1])
+        self.assertNotEqual(configs[0].history_key, configs[1].history_key)
+        self.assertEqual([call.args[0] for call in self.repository.save_last_search_time.call_args_list],
+                         [config.history_key for config in configs])
+        for source in sources:
+            source.fetch.assert_awaited_once_with(CUTOFF)
+        self.assertEqual(result.failed_sources, 0)
+
+    async def test_betera_and_maxline_failures_preserve_checkpoints_and_continue(self):
+        for config_type, factory_name, error_type in (
+            (BeteraJobsSourceConfig, 'BeteraJobsSource', BeteraFetchError),
+            (MaxLineJobsSourceConfig, 'MaxLineJobsSource', MaxLineFetchError),
+        ):
+            with self.subTest(source=factory_name):
+                self.repository.save_last_search_time.reset_mock()
+                self.report.reset_mock()
+                self.source.fetch.reset_mock()
+                config = config_type(SearchFilter(['flutter']))
+                self.config.SOURCES = [config, self.source.config]
+                error = error_type('Source returned HTTP 500')
+                source = Mock(config=config, fetch=AsyncMock(side_effect=error))
+                self.patch_object(self.main, factory_name, return_value=source)
+                result = await self.main.search_jobs(self.message.answer)
+                self.assertEqual(result.failed_sources, 1)
+                self.report.assert_called_once()
+                self.assertIs(self.report.call_args.args[0], error)
+                self.source.fetch.assert_awaited_once()
+                self.repository.save_last_search_time.assert_awaited_once()
+                self.assertEqual(self.repository.save_last_search_time.call_args.args[0],
+                                 self.source.config.history_key)
+
     async def test_ashby_companies_have_independent_checkpoints(self):
         configs = [AshbyJobsSourceConfig(slug, SearchFilter(['flutter']))
                    for slug in ('gismart', 'another-company')]

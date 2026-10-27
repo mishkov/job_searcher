@@ -20,6 +20,8 @@ from src.error_reporting import ConsoleErrorReporter, posting_context, report_as
 from src.logging_config import configure_logging
 from src.job_sources.error_reporting_source import ErrorReportingJobsSource, source_error_context
 from src.job_sources.job_source import JobsSource
+from src.job_sources.betera.betera import BeteraFetchError, BeteraJobsSource, BeteraJobsSourceConfig
+from src.job_sources.maxline.maxline import MaxLineFetchError, MaxLineJobsSource, MaxLineJobsSourceConfig
 from src.job_sources.ashby.ashby import AshbyFetchError, AshbyJobsSource, AshbyJobsSourceConfig
 from src.job_sources.comeet.comeet import ComeetFetchError, ComeetJobsSource, ComeetJobsSourceConfig
 from src.job_sources.aj_bell.aj_bell import AjBellFetchError, AjBellJobsSource, AjBellJobsSourceConfig
@@ -241,6 +243,10 @@ async def _search_jobs(send_message, should_continue, on_source) -> SearchResult
                 source = RemoteOkJobsSource(source_config)
             elif isinstance(source_config, AndersenJobsSourceConfig):
                 source = AndersenJobsSource(source_config)
+            elif isinstance(source_config, BeteraJobsSourceConfig):
+                source = BeteraJobsSource(source_config)
+            elif isinstance(source_config, MaxLineJobsSourceConfig):
+                source = MaxLineJobsSource(source_config)
             elif isinstance(source_config, AjBellJobsSourceConfig):
                 source = AjBellJobsSource(source_config)
             elif isinstance(source_config, HackMotionJobsSourceConfig):
@@ -278,6 +284,7 @@ async def _search_jobs(send_message, should_continue, on_source) -> SearchResult
                 AndersenFetchError, SmartRecruitersFetchError, AjBellFetchError,
                 BrightstarLotteryFetchError, RipplingFetchError,
                 HackMotionFetchError, GreenhouseFetchError, ComeetFetchError, AshbyFetchError,
+                BeteraFetchError, MaxLineFetchError,
             ):
                 result.failed_sources += 1
                 continue
